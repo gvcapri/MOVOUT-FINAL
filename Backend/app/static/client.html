@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Rastreamento do Frete</title>
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+
+    <style>
+        body {
+            margin: 0;
+            font-family: "Inter", sans-serif;
+            background: #f5f6fa;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        .debug {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.75);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 999;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="map"></div>
+    <div class="debug" id="debug"> Conectando...</div>
+
+    <script>
+
+        const FRETE_ID = 1;
+
+        // URL LOCAL PARA TESTES
+        const WS_URL = "ws://127.0.0.1:8000/api/v1/ws/fretes/1";
+
+
+        const map = L.map("map", {
+            zoomControl: false
+        }).setView([0, 0], 2);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
+            attribution: "© OpenStreetMap"
+        }).addTo(map);
+
+        L.control.zoom({ position: "bottomright" }).addTo(map);
+
+
+        //ÍCONES
+
+        const iconMotorista = L.icon({
+            iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png",
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+        });
+
+
+        //TRAJETO
+
+        let markerMotorista = null;
+        let path = L.polyline([], {
+            color: "#007bff",
+            weight: 4
+        }).addTo(map);
+
+        let primeiraLocalizacao = true;
+
+        //WEBSOCKET
+
+        const debug = document.getElementById("debug");
+
+        const ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+            debug.innerText = " WebSocket conectado";
+            console.log("WebSocket conectado");
+        };
+
+        ws.onerror = (err) => {
+            debug.innerText = " Erro no WebSocket";
+            console.error("Erro WebSocket", err);
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            console.log(" Localização recebida:", data);
+
+            if (!data.latitude || !data.longitude) {
+                console.warn(" Coordenadas inválidas", data);
+                return;
+            }
+
+            const point = [data.latitude, data.longitude];
+
+
+            if (primeiraLocalizacao) {
+                markerMotorista = L.marker(point, { icon: iconMotorista })
+                    .addTo(map)
+                    .bindPopup(" Motorista");
+
+                map.setView(point, 16);
+                primeiraLocalizacao = false;
+            } else {
+                markerMotorista.setLatLng(point);
+            }
+
+            path.addLatLng(point);
+
+            debug.innerText = ` Lat: ${data.latitude.toFixed(5)} | Lng: ${data.longitude.toFixed(5)}`;
+        };
+    </script>
+
+
+    <script>
+        //const FRETE_ID = localStorage.getItem("frete_id");
+
+
+        //const WS_URL = `wss://soluble-copulatively-isa.ngrok-free.dev/ws/fretes/${FRETE_ID}`;
+
+    </script>
+
+
+
+</body>
+
+</html>

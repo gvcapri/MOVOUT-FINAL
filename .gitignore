@@ -1,0 +1,26 @@
+# Segurança
+.env
+Backend/.env
+*.pem
+isrgrootx1.pem
+
+# Python
+.venv/
+Backend/.venv/
+__pycache__/
+*.pyc
+
+# Node / Expo
+node_modules/
+Frontend/node_modules/
+Frontend Motorista/node_modules/
+.expo/
+Frontend/.expo/
+Frontend Motorista/.expo/
+
+# Build/cache
+dist/
+build/
+out/
+.DS_Store
+Thumbs.db

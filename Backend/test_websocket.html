@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste WebSocket Movout (Multi-Motorista)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .box {
+            border: 1px solid #ccc;
+            padding: 15px;
+            width: 30%;
+            border-radius: 8px;
+            min-width: 300px;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+        }
+
+        .log {
+            height: 150px;
+            overflow-y: auto;
+            background: #f0f0f0;
+            border: 1px solid #999;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        button {
+            padding: 8px;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+
+        .status {
+            font-weight: bold;
+        }
+
+        .online {
+            color: green;
+        }
+
+        .offline {
+            color: red;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- CLIENTE -->
+    <div class="box" style="border-color: #007bff; background-color: #f8f9fa;">
+        <h2>📦 Cliente (Rastreando Frete 1)</h2>
+        <p>Status: <span id="status-cliente" class="status offline">Desconectado</span></p>
+        <button onclick="conectarCliente()">Conectar</button>
+        <hr>
+        <div id="log-cliente" class="log"></div>
+    </div>
+
+    <!-- MOTORISTA 1 -->
+    <div class="box">
+        <h2>🚚 Motorista 1</h2>
+        <p>Status: <span id="status-m1" class="status offline">Desconectado</span></p>
+        <button onclick="conectarMotorista(1, 'm1')">Conectar</button>
+        <button onclick="enviarLocalizacao(1, 'm1')">Enviar Loc (Lat -15.60)</button>
+        <hr>
+        <div id="log-m1" class="log"></div>
+    </div>
+
+    <!-- MOTORISTA 2 -->
+    <div class="box">
+        <h2>🚛 Motorista 2</h2>
+        <p>Status: <span id="status-m2" class="status offline">Desconectado</span></p>
+        <button onclick="conectarMotorista(2, 'm2')">Conectar</button>
+        <button onclick="enviarLocalizacao(2, 'm2')">Enviar Loc (Lat -15.61)</button>
+        <hr>
+        <div id="log-m2" class="log"></div>
+    </div>
+
+    <script>
+        let wsCliente;
+        const drivers = {};
+
+        function log(elementId, message) {
+            const el = document.getElementById('log-' + elementId);
+            const line = document.createElement('div');
+            line.textContent = `> ${message}`;
+            el.appendChild(line);
+            el.scrollTop = el.scrollHeight;
+        }
+
+        // --- CLIENTE ---
+        function conectarCliente() {
+            if (wsCliente) return;
+            wsCliente = new WebSocket("ws://127.0.0.1:8000/api/v1/ws/fretes/1");
+
+            wsCliente.onopen = () => {
+                document.getElementById('status-cliente').textContent = "Online";
+                document.getElementById('status-cliente').className = "status online";
+                log('cliente', "Conectado!");
+            };
+
+            wsCliente.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                log('cliente', `📍 Mot. ${data.motorista_id}: [${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}]`);
+            };
+
+            wsCliente.onclose = () => {
+                document.getElementById('status-cliente').textContent = "Desconectado";
+                document.getElementById('status-cliente').className = "status offline";
+                wsCliente = null;
+            };
+        }
+
+        // --- MOTORISTA GENÉRICO ---
+        function conectarMotorista(id, uiId) {
+            if (drivers[id]) return;
+            const ws = new WebSocket(`ws://127.0.0.1:8000/api/v1/ws/motoristas/${id}`);
+
+            ws.onopen = () => {
+                document.getElementById(`status-${uiId}`).textContent = "Online";
+                document.getElementById(`status-${uiId}`).className = "status online";
+                log(uiId, "Conectado!");
+            };
+
+            ws.onclose = () => {
+                document.getElementById(`status-${uiId}`).textContent = "Desconectado";
+                document.getElementById(`status-${uiId}`).className = "status offline";
+                delete drivers[id];
+            };
+
+            ws.onerror = (err) => log(uiId, "Erro conexão");
+            drivers[id] = ws;
+        }
+
+        function enviarLocalizacao(id, uiId) {
+            const ws = drivers[id];
+            if (!ws) { alert("Conecte primeiro!"); return; }
+
+            // Gera coordenada levemente diferente para cada motorista
+            const baseLat = id === 1 ? -15.60 : -15.61;
+            const lat = baseLat + (Math.random() * 0.005);
+            const lng = -56.09 + (Math.random() * 0.005);
+
+            const payload = {
+                latitude: lat,
+                longitude: lng,
+                frete_id: 1
+            };
+
+            ws.send(JSON.stringify(payload));
+            log(uiId, `Enviado: ${lat.toFixed(4)}`);
+        }
+    </script>
+</body>
+
+</html>

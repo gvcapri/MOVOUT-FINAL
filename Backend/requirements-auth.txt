@@ -1,0 +1,3 @@
+# Dependências para autenticação (login/registro com senha)
+# Instale com: pip install -r requirements-auth.txt
+bcrypt>=4.0.0
