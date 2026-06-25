@@ -35,24 +35,53 @@ async def websocket_motorista(websocket: WebSocket, motorista_id: int):
     logger.info(f"Motorista {motorista_id} conectado para localização")
     try:
         while True:
-            data = await websocket.receive_json()
-            latitude = data.get('latitude')
-            longitude = data.get('longitude')
-            frete_id = int(data.get('frete_id'))
-            chave = f'motorista:{motorista_id}:localizacao'
             try:
-                redis_client.hset(chave, mapping={'latitude': latitude, 'longitude': longitude})
-                redis_client.expire(chave, 30)
-            except Exception:
-                pass
-            await manager.send_location(frete_id, {
-                'motorista_id': motorista_id,
-                'latitude': latitude,
-                'longitude': longitude,
-            })
+                # 1. Recebimento seguro
+                data = await websocket.receive_json()
+                
+                # 2. Validação da existência do ID
+                raw_frete_id = data.get('frete_id')
+                if not raw_frete_id:
+                    logger.warning(f"Aviso: Payload sem frete_id do motorista {motorista_id}. Ignorando.")
+                    continue
+                    
+                # 3. Validação do tipo do ID (Protege contra strings)
+                try:
+                    frete_id = int(raw_frete_id)
+                except (ValueError, TypeError):
+                    logger.error(f"Erro: frete_id inválido recebido: {raw_frete_id}")
+                    continue
+
+                latitude = data.get('latitude')
+                longitude = data.get('longitude')
+                chave = f'motorista:{motorista_id}:localizacao'
+                
+                # 4. Redis blindado e explícito
+                try:
+                    redis_client.hset(chave, mapping={'latitude': latitude, 'longitude': longitude})
+                    redis_client.expire(chave, 30)
+                except Exception as redis_err:
+                    logger.error(f"Aviso do Redis: Falha ignorada - {redis_err}")
+                    
+                # 5. Envio de localização protegido
+                try:
+                    await manager.send_location(frete_id, {
+                        'motorista_id': motorista_id,
+                        'latitude': latitude,
+                        'longitude': longitude,
+                    })
+                except Exception as send_err:
+                    logger.warning(f"Erro ao enviar localização: {send_err}")
+                    
+            except WebSocketDisconnect:
+                # Se o aplicativo fechar, repassamos para encerrar limpo
+                raise
+            except Exception as loop_err:
+                logger.error(f"Erro inesperado no loop: {loop_err}")
+                continue
+                
     except WebSocketDisconnect:
         logger.info(f"Motorista {motorista_id} desconectado da localização")
-
 
 def _execute_with_retry(fn):
     try:

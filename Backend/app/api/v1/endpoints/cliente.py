@@ -148,7 +148,7 @@ def obter_negociacao_ativa(email: str, db: Session = Depends(get_session)):
     proposta = db.execute(
         text(
             """
-            SELECT n.id_negociacao, n.id_frete, n.preco_proposto,
+            SELECT n.id_negociacao, n.id_frete, n.id_motorista, n.preco_proposto,
                    f.distancia_km, f.volume_carga_total,
                    m.avaliacao_media,
                    p.nome AS motorista_nome,
@@ -178,7 +178,7 @@ def obter_negociacao_ativa(email: str, db: Session = Depends(get_session)):
         "id_negociacao": int(m["id_negociacao"]),
         "id_frete": int(m["id_frete"]),
         "driver": {
-            "id": int(m["id_negociacao"]),
+            "id": int(m["id_motorista"]),  # alterado aqui de m["id_negociacao"] para m["id_motorista"]
             "rawId": None,
             "name": m.get("motorista_nome") or "Motorista",
             "rating": float(m.get("avaliacao_media") or 4.8),

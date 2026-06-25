@@ -1,0 +1,26 @@
+1. Estabilidade de Conexão (Async/Event Loop)
+Descrição do Problema: O servidor derrubava conexões WebSocket e retornava erro 500 ao tentar executar tarefas de fundo (notificações) sem um event loop ativo.
+
+Solução e Mudança: Implementamos uma lógica de verificação (asyncio.get_running_loop()) para garantir que as tarefas sejam enfileiradas corretamente, independentemente da thread de origem.
+
+2. Consistência de Banco de Dados (Tabelas Fantasma)
+Descrição do Problema: O SQLModel não estava mapeando corretamente os nomes das tabelas (ex: criava motorista em vez de motorista7), causando perda de dados e erros de referência.
+
+Solução e Mudança: Adicionamos o atributo __tablename__ em todos os modelos (SQLModel) para forçar o mapeamento exato com as tabelas existentes no seu banco MySQL no Railway.
+
+3. Resiliência do WebSocket (Tratamento de Exceções)
+Descrição do Problema: Qualquer falha pontual (Redis fora do ar, frete_id inválido ou string no lugar de número) derrubava a conexão do motorista e interrompia o fluxo de localização.
+
+Solução e Mudança: Blindamos o loop principal com múltiplos blocos try/except. Agora, erros do Redis ou de validação são logados como warning/error, mas o loop continua rodando, mantendo o WebSocket sempre ativo.
+
+4. Integração de Perfil no Front-end (ID Corretor)
+Descrição do Problema: A API enviava o ID da negociação no campo do ID do motorista, o que impedia o carregamento de fotos de perfil e o funcionamento do chat.
+
+Solução e Mudança: Corrigimos o payload de resposta no endpoint negociacao_ativa e ajustamos a query SQL (SELECT) para incluir a coluna n.id_motorista, permitindo que o front-end receba a referência correta do usuário.
+
+5. Lógica de Conclusão de Corrida (Máquina de Estados)
+Descrição do Problema: A ordem de conclusão era confusa e permitia que estados ficassem "travados" (limbo), travando a liberação do pagamento.
+
+Solução e Mudança: * Motorista: Implementamos trava de status para que a conclusão só ocorra se o frete estiver EM_TRANSITO.
+
+Cliente: Forçamos a transição para CONCLUIDO e AGUARDANDO_AVALIACOES ao confirmar, unificando o fluxo independentemente de quem finaliza a corrida primeiro.

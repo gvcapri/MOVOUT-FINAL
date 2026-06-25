@@ -936,11 +936,11 @@ def aceitar_proposta(frete_id: int, motorista_id: Optional[int] = None, session:
     try:
         import asyncio
         ws_payload = {"tipo": "FRETE_ACEITO", "frete_id": frete_id, "frete": payload, "motorista": payload.get("motorista")}
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(manager.send_location(frete_id, ws_payload))
-        else:
-            loop.run_until_complete(manager.send_location(frete_id, ws_payload))
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_location(frete_id, ws_payload))
+        except RuntimeError:
+            asyncio.run(manager.send_location(frete_id, ws_payload))
     except Exception:
         pass
 
@@ -991,16 +991,27 @@ def chegou_destino(frete_id: int, dados: OperacaoPagamento = OperacaoPagamento()
 
 
 
-
 @router.post("/{frete_id}/motorista-concluir")
 def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int] = None, session: Session = Depends(get_session)):
     row = _frete_row(session, frete_id)
     if not row:
         raise HTTPException(status_code=404, detail="Frete não encontrado")
+    
     fm = row._mapping
+    
+    # --- NOVO BLOCO DE VERIFICAÇÃO DE STATUS ---
+    # Só permitimos concluir se o status atual for exatamente 'EM_TRANSITO'
+    if fm.get("status") != 'EM_TRANSITO':
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Operação inválida. O frete só pode ser concluído se estiver 'EM_TRANSITO'. Status atual: {fm.get('status')}"
+        )
+    # -------------------------------------------
+
     motorista_final = _resolve_motorista_id(session, motorista_id or fm.get("id_motorista"))
     if not fm.get("id_motorista") or int(fm.get("id_motorista")) != motorista_final:
         raise HTTPException(status_code=403, detail="Este frete não está atribuído a esse motorista.")
+    
     try:
         session.execute(
             text("UPDATE frete7 SET status = 'CONCLUIDO', motorista_confirmou_conclusao = 1, concluido_em = COALESCE(concluido_em, CURRENT_TIMESTAMP) WHERE id_frete = :id"),
@@ -1017,34 +1028,54 @@ def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int
         raise HTTPException(status_code=500, detail=f"Erro ao marcar corrida concluída: {exc}") from exc
     return {"status": "concluido_pelo_motorista", "novo_status": "concluido", "frete_id": frete_id, "pagamento": _ensure_pagamento(session, frete_id)}
 
-
 @router.post("/{frete_id}/cliente-confirmar-conclusao")
 def cliente_confirmar_conclusao(frete_id: int, dados: OperacaoPagamento = OperacaoPagamento(), session: Session = Depends(get_session)):
     row = _frete_row(session, frete_id)
     if not row:
         raise HTTPException(status_code=404, detail="Frete não encontrado")
+    
     fm = row._mapping
     if not fm.get("id_motorista"):
         raise HTTPException(status_code=400, detail="Frete sem motorista atribuído.")
+    
     try:
+        # Garantimos que o pagamento exista antes de mexer nele
         _ensure_pagamento(session, frete_id)
+        
+        # ATUALIZAÇÃO FORÇADA: Não importa se o motorista concluiu ou não.
+        # O cliente confirmou, então setamos status como CONCLUIDO.
         session.execute(text("""
             UPDATE frete7
-            SET status = 'CONCLUIDO', cliente_confirmou_conclusao = 1, concluido_em = COALESCE(concluido_em, CURRENT_TIMESTAMP)
+            SET status = 'CONCLUIDO', 
+                cliente_confirmou_conclusao = 1, 
+                concluido_em = COALESCE(concluido_em, CURRENT_TIMESTAMP)
             WHERE id_frete = :id
         """), {"id": frete_id})
+        
+        # Pagamento vai direto para avaliação
         session.execute(text("""
             UPDATE pagamento_frete7
-            SET status = 'AGUARDANDO_AVALIACOES', observacao = :obs
+            SET status = 'AGUARDANDO_AVALIACOES', 
+                observacao = :obs
             WHERE id_frete = :id
-        """), {"id": frete_id, "obs": dados.observacao or "Cliente confirmou que a corrida foi concluída. Aguardando avaliações para liberar pagamento."})
+        """), {"id": frete_id, "obs": dados.observacao or "Cliente confirmou a conclusão."})
+        
+        # Tentamos liberar se o motorista também já tiver avaliado
         resultado = _tentar_liberar_pagamento_pos_avaliacoes(session, frete_id)
         session.commit()
+        
     except Exception as exc:
         session.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao confirmar conclusão: {exc}") from exc
-    return {"status": "concluido", "novo_status": "concluido", "frete_id": frete_id, "resultado_pagamento": resultado}
+        
+    return {
+        "status": "concluido", 
+        "novo_status": "concluido", 
+        "frete_id": frete_id, 
+        "resultado_pagamento": resultado
+    }
 
+    
 @router.get("/{frete_id}/pagamento")
 def obter_pagamento(frete_id: int, session: Session = Depends(get_session)):
     pagamento = _ensure_pagamento(session, frete_id)
@@ -1164,11 +1195,11 @@ def post_detectar_objeto(file: UploadFile = File(...), frete_id: Optional[int] =
         if frete_id:
             try:
                 payload = {"tipo": "DETECCAO_OBJETO", "objeto": objeto_identificado}
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(manager.send_location(frete_id, payload))
-                else:
-                    loop.run_until_complete(manager.send_location(frete_id, payload))
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(manager.send_location(frete_id, payload))
+                except RuntimeError:
+                    asyncio.run(manager.send_location(frete_id, payload))
             except Exception as ws_err:
                 logger.error(f"Erro ao enviar WebSocket: {ws_err}")
         return {"status": "sucesso", "objeto": objeto_identificado}

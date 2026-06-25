@@ -2,6 +2,7 @@ from typing import Optional, List
 from datetime import datetime
 from sqlmodel import Field, SQLModel, Relationship
 class Motorista(SQLModel, table=True):
+    __tablename__ = "motorista7" #mudanca aqui 25/06
     id: Optional[int] = Field(default=None, primary_key=True)
     nome: str
     tipo_veiculo: str
@@ -10,6 +11,7 @@ class Motorista(SQLModel, table=True):
 
 
 class PropostaFrete(SQLModel, table=True):
+    __tablename__ = "propostafrete" #mudanca aqui 25/06
     id: Optional[int] = Field(default=None, primary_key=True)
     frete_id: int = Field(foreign_key="pedidofrete.id")
     motorista_id: int
@@ -23,6 +25,7 @@ class PropostaFrete(SQLModel, table=True):
 
 
 class PedidoFrete(SQLModel, table=True):
+    __tablename__ = "pedidofrete"  #mudanca aqui 25/06
     id: Optional[int] = Field(default=None, primary_key=True)
     descricao: str
     peso_estimado: float
