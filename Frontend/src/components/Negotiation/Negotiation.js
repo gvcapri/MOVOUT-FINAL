@@ -1,305 +1,571 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert } from 'react-native';
-
-import { ArrowLeft, Clock, DollarSign, Star, CheckCircle, MessageCircle } from 'lucide-react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  Image, ActivityIndicator, Alert, TextInput,
+  KeyboardAvoidingView, Platform, Animated,
+} from 'react-native';
+import { ArrowLeft, Clock, DollarSign, Star, CheckCircle, MessageCircle, TrendingDown, Info, RefreshCw } from 'lucide-react-native';
 import { theme } from '../../theme';
 import { API_BASE_URL } from '../../api/config';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const fmt = (val) =>
+  `R$ ${parseFloat(val || 0)
+    .toFixed(2)
+    .replace('.', ',')
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+
+const POLL_INTERVAL = 4000;
+
+// ─── Component ───────────────────────────────────────────────────────────────
 const Negotiation = ({ onNavigate, freightId }) => {
-    const [driver, setDriver] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [errorMsg, setErrorMsg] = useState('');
-    const [counterOffer, setCounterOffer] = useState('0,00');
+  const [frete, setFrete] = useState(null);
+  const [proposta, setProposta] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [contraValor, setContraValor] = useState('');
+  const [enviandoContra, setEnviandoContra] = useState(false);
+  const [aceitando, setAceitando] = useState(false);
+  const [aguardandoProposta, setAguardandoProposta] = useState(true);
 
-    useEffect(() => {
-        let intervalId;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const intervalRef = useRef(null);
 
-        const loadNegotiation = async () => {
-            if (!freightId) {
-                setErrorMsg('ID do frete não informado.');
-                setLoading(false);
-                return;
-            }
+  // Pulsing animation while waiting
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.5, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    if (aguardandoProposta) pulse.start();
+    else pulse.stop();
+    return () => pulse.stop();
+  }, [aguardandoProposta]);
 
+  // ── Polling ────────────────────────────────────────────────────────────────
+  const carregar = async () => {
+    if (!freightId) return;
+    try {
+      // Busca dados do frete (preco_estimado + status)
+      const [freteRes, propostasRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/fretes/${freightId}`),
+        fetch(`${API_BASE_URL}/fretes/${freightId}/propostas`),
+      ]);
+
+      if (!freteRes.ok) {
+        setErrorMsg('Frete não encontrado.');
+        return;
+      }
+
+      const freteData = await freteRes.json();
+      setFrete(freteData);
+
+      // Verifica se o frete já foi aceito (motorista aceitou a contraproposta)
+      if (freteData.status === 'aceito') {
+        clearInterval(intervalRef.current);
+        onNavigate('accepted', { freightId });
+        return;
+      }
+
+      if (propostasRes.ok) {
+        const propostasData = await propostasRes.json();
+        if (Array.isArray(propostasData) && propostasData.length > 0) {
+          const ultima = propostasData[propostasData.length - 1];
+          setProposta(ultima);
+          setAguardandoProposta(false);
+          setLoading(false);
+          setErrorMsg('');
+          // Pre-preenche contraproposta com 90% do valor do motorista
+          if (!contraValor) {
+            const sugerido = (parseFloat(ultima.valor) * 0.9).toFixed(2);
+            setContraValor(sugerido);
+          }
+        } else {
+          setAguardandoProposta(true);
+          setLoading(false);
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao carregar negociação:', e);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregar();
+    intervalRef.current = setInterval(carregar, POLL_INTERVAL);
+    return () => clearInterval(intervalRef.current);
+  }, [freightId]);
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  const handleAceitar = async () => {
+    if (!proposta) return;
+    setAceitando(true);
+    try {
+      const url = `${API_BASE_URL}/fretes/${freightId}/aceitar-proposta?motorista_id=${proposta.motorista_id}`;
+      const resp = await fetch(url, { method: 'POST' });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || 'Erro ao aceitar proposta');
+      }
+      clearInterval(intervalRef.current);
+      onNavigate('accepted', { freightId });
+    } catch (e) {
+      Alert.alert('Erro', e.message || 'Não foi possível aceitar a proposta.');
+    } finally {
+      setAceitando(false);
+    }
+  };
+
+  const handleContraproposta = async () => {
+    const valor = parseFloat(contraValor.replace(',', '.'));
+    if (!valor || valor <= 0) {
+      Alert.alert('Valor inválido', 'Digite um valor válido para a contraproposta.');
+      return;
+    }
+    if (proposta && valor >= proposta.valor) {
+      Alert.alert('Valor inválido', 'A contraproposta deve ser menor que o valor do motorista.');
+      return;
+    }
+    setEnviandoContra(true);
+    try {
+      const resp = await fetch(`${API_BASE_URL}/fretes/${freightId}/contraproposta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          valor,
+          motorista_id: proposta?.motorista_id || null,
+          id_negociacao: proposta?.id_negociacao || null,
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || 'Erro ao enviar contraproposta');
+      }
+      Alert.alert(
+        '✅ Contraproposta Enviada',
+        `Seu valor de ${fmt(valor)} foi enviado ao motorista. Aguardando resposta...`,
+      );
+      setAguardandoProposta(true);
+      setProposta(null);
+      await carregar();
+    } catch (e) {
+      Alert.alert('Erro', e.message || 'Não foi possível enviar a contraproposta.');
+    } finally {
+      setEnviandoContra(false);
+    }
+  };
+
+  const handleCancelar = () => {
+    Alert.alert(
+      'Cancelar Frete',
+      'Tem certeza que deseja cancelar este frete?',
+      [
+        { text: 'Voltar', style: 'cancel' },
+        {
+          text: 'Cancelar Frete',
+          style: 'destructive',
+          onPress: async () => {
             try {
-                const response = await fetch(`${API_BASE_URL}/fretes/${freightId}/propostas`);
-                const data = await response.json();
+              await fetch(`${API_BASE_URL}/fretes/${freightId}/cancelar`, { method: 'POST' });
+            } catch {}
+            clearInterval(intervalRef.current);
+            onNavigate('history');
+          },
+        },
+      ]
+    );
+  };
 
-                if (response.ok && data && data.length > 0) {
-                    const proposal = data[data.length - 1];
+  // ── Render helpers ─────────────────────────────────────────────────────────
+  const renderPrecosEstimados = () => {
+    if (!frete) return null;
+    const preco = frete.preco_estimado || frete.valor_total_calculado || 0;
+    return (
+      <View style={styles.estimativaCard}>
+        <View style={styles.estimativaHeader}>
+          <Info color={theme.colors.primary} size={16} />
+          <Text style={styles.estimativaTitle}>Estimativa do Sistema</Text>
+        </View>
+        <View style={styles.estimativaRow}>
+          <Text style={styles.estimativaLabel}>Preço calculado pelo app:</Text>
+          <Text style={styles.estimativaValue}>{fmt(preco)}</Text>
+        </View>
+        {frete.distancia_km > 0 && (
+          <View style={styles.estimativaRow}>
+            <Text style={styles.estimativaLabel}>Distância:</Text>
+            <Text style={styles.estimativaSubValue}>{frete.distancia_km} km</Text>
+          </View>
+        )}
+        {frete.tipo_veiculo && (
+          <View style={styles.estimativaRow}>
+            <Text style={styles.estimativaLabel}>Veículo:</Text>
+            <Text style={styles.estimativaSubValue}>{frete.tipo_veiculo}</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
 
-                    const formattedPrice = `R$ ${proposal.valor.toFixed(2)}`.replace('.', ',');
-                    const suggestedVal = proposal.valor * 0.9;
-                    const formattedSuggested = `R$ ${suggestedVal.toFixed(2)}`.replace('.', ',');
+  const renderAguardando = () => (
+    <View style={styles.waitCard}>
+      <Animated.View style={[styles.waitIcon, { opacity: pulseAnim }]}>
+        <RefreshCw color={theme.colors.primary} size={40} />
+      </Animated.View>
+      <Text style={styles.waitTitle}>Aguardando proposta...</Text>
+      <Text style={styles.waitSub}>
+        Motoristas próximos estão sendo notificados. Você receberá a proposta em instantes.
+      </Text>
+      {renderPrecosEstimados()}
+    </View>
+  );
 
-                    setDriver({
-                        name: proposal.nome_motorista,
-                        rating: proposal.rating || 5.0,
-                        trips: 12,
-                        vehicle: "Veículo",
-                        plate: "ABC-1234",
-                        photo: "https://randomuser.me/api/portraits/men/32.jpg",
-                        price: formattedPrice,
-                        rawPrice: proposal.valor,
-                        rawId: proposal.motorista_id,
-                        time: proposal.tempo_estimado,
-                        suggestedPrice: formattedSuggested
-                    });
-
-                    setCounterOffer(suggestedVal.toFixed(2).replace('.', ','));
-                    setLoading(false);
-                    setErrorMsg('');
-
-                    if (intervalId) clearInterval(intervalId);
-                } else {
-                    setErrorMsg('Aguardando proposta do motorista...');
-                    setLoading(false);
-                }
-            } catch (error) {
-                console.error("Erro ao carregar negociacao:", error);
-                if (!driver) {
-                    setErrorMsg('Buscando propostas...');
-                }
-            }
-        };
-
-        loadNegotiation();
-        intervalId = setInterval(loadNegotiation, 3000);
-
-        return () => {
-            if (intervalId) clearInterval(intervalId);
-        };
-    }, [freightId]);
+  const renderNegociacao = () => {
+    if (!proposta) return null;
+    const diferenca = frete
+      ? ((parseFloat(proposta.valor) - parseFloat(frete.preco_estimado || 0)) / parseFloat(frete.preco_estimado || 1)) * 100
+      : 0;
 
     return (
-        <View style={styles.container}>
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => onNavigate('request')} style={styles.backButton}>
-                    <ArrowLeft color={theme.colors.white} size={24} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Proposta Disponível</Text>
-                <Text style={styles.headerSubtitle}>Motorista encontrou seu pedido</Text>
+      <>
+        {/* Motorista */}
+        <View style={styles.card}>
+          <View style={styles.driverHeader}>
+            <Image
+              source={{ uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(proposta.nome_motorista || 'M')}&background=1E3A8A&color=fff&size=64` }}
+              style={styles.driverPhoto}
+            />
+            <View style={styles.driverInfo}>
+              <Text style={styles.driverName}>{proposta.nome_motorista || 'Motorista'}</Text>
+              <View style={styles.ratingRow}>
+                <Star color="#F59E0B" size={14} fill="#F59E0B" />
+                <Text style={styles.ratingText}>
+                  {parseFloat(proposta.rating || 4.8).toFixed(1)} avaliação
+                </Text>
+              </View>
+              {(proposta.veiculo && proposta.veiculo !== 'Veículo') && (
+                <Text style={styles.vehicleText}>🚚 {proposta.veiculo} • {proposta.placa || ''}</Text>
+              )}
             </View>
-
-            <ScrollView contentContainerStyle={styles.content}>
-
-                {loading ? (
-                    <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
-                ) : errorMsg ? (
-                    <Text style={styles.errorText}>{errorMsg}</Text>
-                ) : driver && (
-                    <>
-                        {/* Driver Card */}
-                        <View style={styles.card}>
-                            <View style={styles.driverHeader}>
-                                <Image source={{ uri: driver.photo }} style={styles.driverPhoto} />
-                                <View style={styles.driverInfo}>
-                                    <Text style={styles.driverName}>{driver.name}</Text>
-                                    <View style={styles.ratingRow}>
-                                        <Star color={theme.colors.primary} size={16} fill={theme.colors.primary} />
-                                        <Text style={styles.ratingText}>{driver.rating} ({driver.trips} viagens)</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <View style={styles.vehicleInfo}>
-                                <Text style={styles.vehicleText}>{driver.vehicle} • {driver.plate}</Text>
-                            </View>
-
-                            <View style={styles.divider} />
-
-                            <View style={styles.proposalDetails}>
-                                <View style={styles.proposalItem}>
-                                    <DollarSign color={theme.colors.success} size={24} />
-                                    <View>
-                                        <Text style={styles.proposalLabel}>Preço Oferecido</Text>
-                                        <Text style={styles.proposalValue}>{driver.price}</Text>
-                                    </View>
-                                </View>
-
-                                <View style={styles.proposalItem}>
-                                    <Clock color={theme.colors.secondary} size={24} />
-                                    <View>
-                                        <Text style={styles.proposalLabel}>Tempo Estimado</Text>
-                                        <Text style={styles.proposalValue}>{driver.time}</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <View style={styles.suggestedBox}>
-                                <Text style={styles.suggestedLabel}>Valor sugerido pelo App:</Text>
-                                <Text style={styles.suggestedValue}>{driver.suggestedPrice}</Text>
-                            </View>
-                        </View>
-
-                        {/* Counter Offer Section */}
-                        <View style={styles.card}>
-                            <Text style={styles.sectionTitle}>Contraproposta</Text>
-                            <Text style={styles.description}>
-                                A contraproposta do motorista é {driver.price}. Você pode aceitar ou sugerir um novo valor.
-                            </Text>
-
-                            <View style={styles.counterInputContainer}>
-                                <Text style={styles.currencyPrefix}>R$</Text>
-                                <View style={styles.inputWrapper}>
-                                    <Text style={{ color: theme.colors.textSecondary }}>Valor da sua oferta:</Text>
-                                    <Text style={styles.inputValue}>{counterOffer}</Text>
-                                </View>
-                                <View style={styles.counterButtons}>
-                                    <TouchableOpacity onPress={() => setCounterOffer(prev => (parseFloat(prev.replace(',', '.')) - 5).toFixed(2).replace('.', ','))} style={styles.counterBtn}>
-                                        <Text style={styles.counterBtnText}>-5</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => setCounterOffer(prev => (parseFloat(prev.replace(',', '.')) + 5).toFixed(2).replace('.', ','))} style={styles.counterBtn}>
-                                        <Text style={styles.counterBtnText}>+5</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        </View>
-                    </>
-                )}
-
-            </ScrollView>
-
-            {/* Action Buttons */}
-            {driver && (
-                <View style={styles.footer}>
-                    <TouchableOpacity
-                        style={[styles.actionButton, styles.acceptButton]}
-                        onPress={async () => {
-                            try {
-                                const url = `${API_BASE_URL}/fretes/${freightId}/aceitar-proposta?motorista_id=${driver?.rawId || driver?.id || 0}`;
-                                const resp = await fetch(url, { method: 'POST' });
-                                if (!resp.ok) {
-                                    throw new Error('erro ao chamar backend ' + resp.status);
-                                }
-                                onNavigate('accepted', { freightId });
-                            } catch (e) {
-                                console.error('Falha ao aceitar proposta no servidor', e);
-                                Alert.alert('Erro', 'Não foi possível aceitar a proposta. Tente novamente.');
-                            }
-                        }}
-                    >
-                        <CheckCircle color={theme.colors.white} size={24} />
-                        <Text style={styles.acceptButtonText}>Aceitar Contraproposta</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.actionButton, styles.cancelButton]}
-                        onPress={async () => {
-                            try {
-                                await fetch(`${API_BASE_URL}/fretes/${freightId}/cancelar`, { method: 'POST' });
-                                onNavigate('history');
-                            } catch (e) {
-                                console.error('Falha ao cancelar negociação', e);
-                            }
-                        }}
-                    >
-                        <Text style={styles.acceptButtonText}>Recusar / cancelar</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-
+          </View>
         </View>
+
+        {/* Valores */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Proposta do Motorista</Text>
+
+          <View style={styles.priceComparison}>
+            <View style={styles.priceBox}>
+              <Text style={styles.priceBoxLabel}>App Estimou</Text>
+              <Text style={styles.priceBoxValue}>{fmt(frete?.preco_estimado || 0)}</Text>
+            </View>
+            <View style={styles.priceArrow}>
+              <Text style={styles.priceArrowText}>→</Text>
+            </View>
+            <View style={[styles.priceBox, styles.priceBoxDriver]}>
+              <Text style={styles.priceBoxLabel}>Motorista Pede</Text>
+              <Text style={[styles.priceBoxValue, styles.priceBoxDriverValue]}>{fmt(proposta.valor)}</Text>
+              {Math.abs(diferenca) > 1 && (
+                <Text style={[styles.priceDiff, diferenca > 0 ? styles.priceDiffUp : styles.priceDiffDown]}>
+                  {diferenca > 0 ? '+' : ''}{diferenca.toFixed(0)}%
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* Tempo estimado */}
+          {proposta.tempo_estimado && (
+            <View style={styles.infoRow}>
+              <Clock color={theme.colors.textSecondary} size={16} />
+              <Text style={styles.infoText}>Tempo estimado: {proposta.tempo_estimado}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Contraproposta */}
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <TrendingDown color={theme.colors.accent} size={20} />
+            <Text style={styles.sectionTitle}>Sua Contraproposta</Text>
+          </View>
+          <Text style={styles.contraDesc}>
+            Sugira um valor menor. O motorista decidirá se aceita ou recusa.
+          </Text>
+          <View style={styles.contraInputRow}>
+            <Text style={styles.currencySign}>R$</Text>
+            <TextInput
+              style={styles.contraInput}
+              value={contraValor}
+              onChangeText={setContraValor}
+              keyboardType="decimal-pad"
+              placeholder="0,00"
+              placeholderTextColor={theme.colors.textSecondary}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.btnContra, enviandoContra && styles.btnDisabled]}
+            onPress={handleContraproposta}
+            disabled={enviandoContra}
+            activeOpacity={0.8}
+          >
+            {enviandoContra
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <>
+                  <TrendingDown color="#fff" size={18} />
+                  <Text style={styles.actionBtnText}>Enviar Contraproposta</Text>
+                </>
+            }
+          </TouchableOpacity>
+        </View>
+      </>
     );
+  };
+
+  // ── Main render ────────────────────────────────────────────────────────────
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => onNavigate('request')} style={styles.backButton}>
+          <ArrowLeft color={theme.colors.white} size={24} />
+        </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>Negociação</Text>
+          <Text style={styles.headerSub}>Frete #{freightId}</Text>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {loading ? (
+            <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 60 }} />
+          ) : aguardandoProposta ? (
+            renderAguardando()
+          ) : (
+            renderNegociacao()
+          )}
+        </ScrollView>
+
+        {/* Footer — só aparece quando há proposta */}
+        {proposta && !aguardandoProposta && (
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnAceitar, aceitando && styles.btnDisabled]}
+              onPress={handleAceitar}
+              disabled={aceitando}
+              activeOpacity={0.8}
+            >
+              {aceitando
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <>
+                    <CheckCircle color="#fff" size={20} />
+                    <Text style={styles.actionBtnText}>Aceitar Proposta</Text>
+                  </>
+              }
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnCancelar]}
+              onPress={handleCancelar}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.actionBtnText, { color: '#EF4444' }]}>Recusar e Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Footer de espera */}
+        {aguardandoProposta && !loading && (
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnCancelar]}
+              onPress={handleCancelar}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.actionBtnText, { color: '#EF4444' }]}>Cancelar Frete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </KeyboardAvoidingView>
+    </View>
+  );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.colors.background },
-    header: {
-        padding: theme.spacing.lg,
-        paddingTop: 50,
-        paddingBottom: theme.spacing.xl,
-        borderBottomLeftRadius: theme.borderRadius.xxl,
-        borderBottomRightRadius: theme.borderRadius.xxl,
-        backgroundColor: theme.colors.primary,
-    },
-    backButton: {
-        width: 44, height: 44,
-        backgroundColor: 'rgba(255,255,255,0.15)',
-        borderRadius: theme.borderRadius.lg,
-        justifyContent: 'center', alignItems: 'center',
-        marginBottom: theme.spacing.md,
-    },
-    headerTitle: { fontSize: 24, fontWeight: 'bold', color: theme.colors.white },
-    headerSubtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
-    errorText: { textAlign: 'center', marginTop: 40, color: theme.colors.error, fontSize: 16 },
+  container: { flex: 1, backgroundColor: theme.colors.background },
 
-    content: { padding: theme.spacing.lg },
-    card: {
-        backgroundColor: theme.colors.surface,
-        borderRadius: theme.borderRadius.xl,
-        padding: theme.spacing.lg,
-        marginBottom: theme.spacing.md,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        ...theme.shadows.sm,
-    },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: theme.spacing.lg,
+    paddingTop: 50,
+    paddingBottom: theme.spacing.xl,
+    backgroundColor: theme.colors.primary,
+    borderBottomLeftRadius: theme.borderRadius.xxl,
+    borderBottomRightRadius: theme.borderRadius.xxl,
+  },
+  backButton: {
+    width: 44, height: 44,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: theme.borderRadius.lg,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  headerTitle: { fontSize: 22, fontWeight: 'bold', color: theme.colors.white },
+  headerSub: { color: 'rgba(255,255,255,0.75)', fontSize: 13 },
 
-    driverHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: theme.spacing.md },
-    driverPhoto: { width: 64, height: 64, borderRadius: 32, backgroundColor: theme.colors.surfaceAlt },
-    driverInfo: { flex: 1 },
-    driverName: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text },
-    ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-    ratingText: { color: theme.colors.textSecondary, fontSize: 14 },
+  content: { padding: theme.spacing.lg, paddingBottom: 24 },
 
-    vehicleInfo: { backgroundColor: theme.colors.surfaceAlt, padding: 12, borderRadius: theme.borderRadius.lg, alignItems: 'center' },
-    vehicleText: { color: theme.colors.textSecondary, fontWeight: '500' },
+  // ── Aguardando ──
+  waitCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.xl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    marginBottom: theme.spacing.md,
+    ...theme.shadows.sm,
+  },
+  waitIcon: { marginBottom: theme.spacing.md },
+  waitTitle: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginBottom: 8 },
+  waitSub: { fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: theme.spacing.lg },
 
-    divider: { height: 1, backgroundColor: theme.colors.border, marginVertical: theme.spacing.md },
+  // ── Estimativa ──
+  estimativaCard: {
+    backgroundColor: theme.colors.primaryLight + '25',
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primary + '40',
+    width: '100%',
+    marginTop: 4,
+  },
+  estimativaHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  estimativaTitle: { fontWeight: '700', color: theme.colors.primary, fontSize: 13 },
+  estimativaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  estimativaLabel: { fontSize: 13, color: theme.colors.textSecondary },
+  estimativaValue: { fontSize: 16, fontWeight: 'bold', color: theme.colors.primary },
+  estimativaSubValue: { fontSize: 13, color: theme.colors.text, fontWeight: '500' },
 
-    proposalDetails: { flexDirection: 'row', justifyContent: 'space-around' },
-    proposalItem: { alignItems: 'center', gap: 8 },
-    proposalLabel: { fontSize: 12, color: theme.colors.textSecondary },
-    proposalValue: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text },
+  // ── Cards ──
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.xl,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadows.sm,
+  },
+  sectionTitle: { fontSize: 15, fontWeight: 'bold', color: theme.colors.text, marginLeft: 8 },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
 
-    suggestedBox: {
-        marginTop: theme.spacing.md,
-        backgroundColor: theme.colors.secondaryLight,
-        padding: 12,
-        borderRadius: theme.borderRadius.lg,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    suggestedLabel: { color: theme.colors.secondary, fontSize: 14 },
-    suggestedValue: { color: theme.colors.secondary, fontWeight: 'bold', fontSize: 16 },
+  // ── Driver card ──
+  driverHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  driverPhoto: { width: 62, height: 62, borderRadius: 31, backgroundColor: theme.colors.surfaceAlt },
+  driverInfo: { flex: 1 },
+  driverName: { fontSize: 17, fontWeight: 'bold', color: theme.colors.text },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  ratingText: { fontSize: 13, color: theme.colors.textSecondary },
+  vehicleText: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 4 },
 
-    sectionTitle: { fontSize: 16, fontWeight: 'bold', color: theme.colors.text, marginBottom: 8 },
-    description: { color: theme.colors.textSecondary, lineHeight: 20, marginBottom: theme.spacing.md },
+  // ── Price comparison ──
+  priceComparison: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  priceBox: {
+    flex: 1,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: theme.borderRadius.lg,
+    padding: 12,
+    alignItems: 'center',
+  },
+  priceBoxDriver: {
+    backgroundColor: theme.colors.accent + '15',
+    borderWidth: 1.5,
+    borderColor: theme.colors.accent,
+  },
+  priceBoxLabel: { fontSize: 11, color: theme.colors.textSecondary, marginBottom: 4, fontWeight: '600' },
+  priceBoxValue: { fontSize: 17, fontWeight: 'bold', color: theme.colors.text },
+  priceBoxDriverValue: { color: theme.colors.accent },
+  priceArrow: { paddingHorizontal: 8 },
+  priceArrowText: { fontSize: 20, color: theme.colors.textSecondary },
+  priceDiff: { fontSize: 11, fontWeight: 'bold', marginTop: 2 },
+  priceDiffUp: { color: '#EF4444' },
+  priceDiffDown: { color: theme.colors.success || '#22C55E' },
 
-    counterInputContainer: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: theme.colors.surfaceAlt,
-        borderRadius: theme.borderRadius.xl,
-        padding: 12, borderWidth: 1, borderColor: theme.colors.border,
-    },
-    currencyPrefix: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginRight: 8 },
-    inputWrapper: { flex: 1 },
-    inputValue: { fontSize: 20, fontWeight: 'bold', color: theme.colors.text },
-    counterButtons: { flexDirection: 'row', gap: 8 },
-    counterBtn: {
-        backgroundColor: theme.colors.accent,
-        width: 36, height: 36, borderRadius: 18,
-        justifyContent: 'center', alignItems: 'center',
-    },
-    counterBtnText: { color: theme.colors.white, fontWeight: 'bold' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  infoText: { color: theme.colors.textSecondary, fontSize: 13 },
 
-    footer: {
-        padding: theme.spacing.lg,
-        backgroundColor: theme.colors.surface,
-        borderTopWidth: 1, borderTopColor: theme.colors.border,
-        gap: 10,
-    },
-    actionButton: {
-        flex: 1, flexDirection: 'row',
-        justifyContent: 'center', alignItems: 'center',
-        gap: 8, padding: theme.spacing.md, borderRadius: theme.borderRadius.xl,
-    },
-    cancelButton: { backgroundColor: '#EF4444' },
-    acceptButton: {
-        backgroundColor: theme.colors.accent,
-        ...theme.shadows.md,
-    },
-    acceptButtonText: { color: theme.colors.white, fontWeight: 'bold', fontSize: 16 },
+  // ── Contraproposta ──
+  contraDesc: { fontSize: 13, color: theme.colors.textSecondary, marginBottom: theme.spacing.md },
+  contraInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: theme.borderRadius.xl,
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 16,
+    marginBottom: theme.spacing.md,
+  },
+  currencySign: { fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginRight: 8 },
+  contraInput: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    paddingVertical: 14,
+  },
+
+  // ── Buttons ──
+  footer: {
+    padding: theme.spacing.lg,
+    paddingBottom: Platform.OS === 'android' ? 24 : 28,
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    gap: 10,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: theme.borderRadius.xl,
+  },
+  btnAceitar: {
+    backgroundColor: theme.colors.accent,
+    ...theme.shadows.md,
+  },
+  btnContra: {
+    backgroundColor: theme.colors.primary,
+    ...theme.shadows.sm,
+  },
+  btnCancelar: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: '#EF4444',
+  },
+  btnDisabled: { opacity: 0.55 },
+  actionBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
 });
 
 export default Negotiation;

@@ -23,6 +23,12 @@ class PropostaFreteCreate(BaseModel):
     rating: float = 4.8
 
 
+class ContrapropostaCliente(BaseModel):
+    valor: float
+    motorista_id: Optional[int] = None
+    id_negociacao: Optional[int] = None
+
+
 class FreteCreate(BaseModel):
     # Formato enviado pelo frontend do cliente
     id: Optional[int] = None
@@ -656,7 +662,32 @@ def _tentar_liberar_pagamento_pos_avaliacoes(db: Session, frete_id: int) -> dict
     pagamento = _ensure_pagamento(db, frete_id)
     return {"liberado": True, "valor": valor, "pagamento": _pagamento_payload(pagamento), **avaliacao_status}
 
+@router.get("/calcular-preco")
+def calcular_preco(
+    distancia_km: float = Query(0.0),
+    peso_kg: float = Query(50.0),
+    prioridade: Optional[str] = Query("today"),
+    fragil: bool = Query(False),
+    session: Session = Depends(get_session),
+):
+    """Calcula o preco estimado sem criar o frete. Util para exibir na tela de solicitacao."""
+    veiculos = ["CARRO", "VAN", "CAMINHAO"]
+    resultado = {}
+    for v in veiculos:
+        calc = _calcular_preco_detalhado(session, distancia_km, peso_kg, v, prioridade, fragil)
+        resultado[v.lower()] = {
+            "tipo_veiculo": v,
+            "preco_estimado": calc["preco_estimado"],
+            "valor_base": calc["valor_base"],
+            "valor_distancia": calc["valor_distancia"],
+            "valor_peso": calc["valor_peso"],
+            "valor_prioridade": calc["valor_prioridade"],
+        }
+    return resultado
+
+
 @router.post("/")
+
 def criar_frete(dados: FreteCreate, session: Session = Depends(get_session)):
     id_cliente = _cliente_id(session, dados)
     origem = (dados.origem or "Origem não informada")[:255]
@@ -953,6 +984,69 @@ def aceitar_proposta(frete_id: int, motorista_id: Optional[int] = None, session:
         "preco_fechado": preco_final,
         "motorista": payload.get("motorista"),
         "frete": payload,
+    }
+
+@router.post("/{frete_id}/contraproposta")
+def cliente_contraproposta(frete_id: int, dados: ContrapropostaCliente, session: Session = Depends(get_session)):
+    """Cliente envia uma contraproposta ao motorista."""
+    row = _frete_row(session, frete_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Frete não encontrado")
+    fm = row._mapping
+    status = str(fm.get("status") or "").upper()
+    if status in {"ACEITO", "EM_TRANSITO", "CONCLUIDO", "CANCELADO"}:
+        raise HTTPException(status_code=409, detail="Frete não está em negociação.")
+    if dados.valor <= 0:
+        raise HTTPException(status_code=400, detail="Valor da contraproposta deve ser maior que zero.")
+    try:
+        # Atualiza o preço estimado do frete com o valor da contraproposta do cliente
+        session.execute(
+            text("UPDATE frete7 SET preco_estimado = :valor, status = 'NEGOCIANDO' WHERE id_frete = :id"),
+            {"valor": dados.valor, "id": frete_id},
+        )
+        # Atualiza a negociação pendente se existir
+        if _table_exists(session, "negociacao7"):
+            if dados.id_negociacao:
+                session.execute(
+                    text("""
+                    UPDATE negociacao7
+                    SET preco_proposto = :valor, status = 'PENDENTE'
+                    WHERE id_negociacao = :id_neg AND id_frete = :id_frete
+                    """),
+                    {"valor": dados.valor, "id_neg": dados.id_negociacao, "id_frete": frete_id},
+                )
+            else:
+                # Cria nova entrada de contraproposta
+                motorista_id = dados.motorista_id or fm.get("id_motorista")
+                if motorista_id:
+                    veiculo_id = _veiculo_motorista(session, int(motorista_id))
+                    _insert_negociacao(session, frete_id, int(motorista_id), veiculo_id, dados.valor, fm, "PENDENTE")
+        session.commit()
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao enviar contraproposta: {exc}") from exc
+
+    # Notifica o motorista via WebSocket
+    try:
+        import asyncio
+        ws_payload = {"tipo": "CONTRAPROPOSTA_CLIENTE", "frete_id": frete_id, "valor": dados.valor}
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_location(frete_id, ws_payload))
+        except RuntimeError:
+            asyncio.run(manager.send_location(frete_id, ws_payload))
+    except Exception:
+        pass
+
+    row = _frete_row(session, frete_id)
+    return {
+        "status": "contraproposta_enviada",
+        "frete_id": frete_id,
+        "novo_valor_estimado": dados.valor,
+        "frete": _frete_payload(row, _proposal_rows(session, frete_id)),
     }
 
 

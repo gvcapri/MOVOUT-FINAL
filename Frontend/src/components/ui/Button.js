@@ -1,5 +1,5 @@
-import React from 'react';
-import { TouchableOpacity, ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { useRef } from 'react';
+import { TouchableOpacity, ActivityIndicator, StyleSheet, View, Animated } from 'react-native';
 import { theme } from '../../theme';
 import { Text } from './Text';
 
@@ -16,6 +16,26 @@ export const Button = ({
     textStyle,
     fullWidth = true,
 }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.96,
+            useNativeDriver: true,
+            speed: 50,
+            bounciness: 4,
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            speed: 50,
+            bounciness: 4,
+        }).start();
+    };
+
     const isPrimary = variant === 'primary';
     const isOutline = variant === 'outline';
     const isGhost = variant === 'ghost';
@@ -60,28 +80,34 @@ export const Button = ({
     ];
 
     return (
-        <TouchableOpacity
-            style={containerStyles}
-            onPress={onPress}
-            disabled={disabled || loading}
-            activeOpacity={0.8}
-        >
-            {loading ? (
-                <ActivityIndicator color={baseTextColor} />
-            ) : (
-                <View style={styles.content}>
-                    {iconLeft && <View style={styles.iconLeft}>{iconLeft}</View>}
-                    <Text
-                        weight="bold"
-                        size={size === 'lg' ? 'lg' : 'md'}
-                        style={[{ color: baseTextColor }, textStyle]}
-                    >
-                        {title}
-                    </Text>
-                    {iconRight && <View style={styles.iconRight}>{iconRight}</View>}
-                </View>
-            )}
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <TouchableOpacity
+                style={containerStyles}
+                onPress={onPress}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                disabled={disabled || loading}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={title}
+            >
+                {loading ? (
+                    <ActivityIndicator color={baseTextColor} />
+                ) : (
+                    <View style={styles.content}>
+                        {iconLeft && <View style={styles.iconLeft}>{iconLeft}</View>}
+                        <Text
+                            weight="bold"
+                            size={size === 'lg' ? 'lg' : 'md'}
+                            style={[{ color: baseTextColor }, textStyle]}
+                        >
+                            {title}
+                        </Text>
+                        {iconRight && <View style={styles.iconRight}>{iconRight}</View>}
+                    </View>
+                )}
+            </TouchableOpacity>
+        </Animated.View>
     );
 };
 

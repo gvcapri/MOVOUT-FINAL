@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { View, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, TextInput, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { theme } from '../../theme';
 import { Text } from './Text';
 import { Eye, EyeOff } from 'lucide-react-native';
@@ -15,30 +15,63 @@ export const Input = ({
     rightIcon,
     keyboardType,
     autoCapitalize,
+    returnKeyType,
+    onSubmitEditing,
+    blurOnSubmit,
     style,
     ...props
 }) => {
     const [isFocused, setIsFocused] = useState(false);
     const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+    const borderAnim = useRef(new Animated.Value(0)).current;
 
     const isPassword = secureTextEntry;
     const showPasswordToggle = isPassword && value?.length > 0;
 
-    const handleFocus = useCallback(() => setIsFocused(true), []);
-    const handleBlur = useCallback(() => setIsFocused(false), []);
+    const handleFocus = useCallback(() => {
+        setIsFocused(true);
+        Animated.timing(borderAnim, {
+            toValue: 1,
+            duration: 180,
+            useNativeDriver: false,
+        }).start();
+    }, []);
+
+    const handleBlur = useCallback(() => {
+        setIsFocused(false);
+        Animated.timing(borderAnim, {
+            toValue: 0,
+            duration: 180,
+            useNativeDriver: false,
+        }).start();
+    }, []);
+
     const togglePassword = useCallback(() => setIsPasswordVisible(v => !v), []);
+
+    const animatedBorderColor = borderAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [error ? theme.colors.error : theme.colors.border, error ? theme.colors.error : theme.colors.primary],
+    });
+
+    const animatedBgColor = borderAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [theme.colors.surfaceAlt, theme.colors.white],
+    });
 
     return (
         <View style={[styles.container, style]}>
             {label && (
-                <Text size="sm" weight="medium" color="text" style={styles.label}>
+                <Text size="sm" weight="medium" color={isFocused ? 'primary' : 'text'} style={styles.label}>
                     {label}
                 </Text>
             )}
-            <View
+            <Animated.View
                 style={[
                     styles.inputContainer,
-                    isFocused && styles.focused,
+                    {
+                        borderColor: animatedBorderColor,
+                        backgroundColor: animatedBgColor,
+                    },
                     error && styles.errorBorder,
                 ]}
             >
@@ -54,6 +87,9 @@ export const Input = ({
                     onBlur={handleBlur}
                     keyboardType={keyboardType}
                     autoCapitalize={autoCapitalize}
+                    returnKeyType={returnKeyType}
+                    onSubmitEditing={onSubmitEditing}
+                    blurOnSubmit={blurOnSubmit}
                     {...props}
                 />
                 {showPasswordToggle ? (
@@ -71,7 +107,7 @@ export const Input = ({
                 ) : (
                     rightIcon && <View style={styles.rightIcon}>{rightIcon}</View>
                 )}
-            </View>
+            </Animated.View>
             {error && (
                 <Text size="xs" color="error" style={styles.errorText}>
                     {error}
@@ -93,22 +129,16 @@ const styles = StyleSheet.create({
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: theme.colors.surfaceAlt,
         borderWidth: 1.5,
-        borderColor: theme.colors.border,
         borderRadius: theme.borderRadius.xl,
         paddingHorizontal: theme.spacing.md,
-        minHeight: 50,
+        minHeight: 52,
     },
     input: {
         flex: 1,
         paddingVertical: 12,
         color: theme.colors.text,
         fontSize: theme.typography.fontSizes.md,
-    },
-    focused: {
-        borderColor: theme.colors.primary,
-        backgroundColor: theme.colors.white,
     },
     errorBorder: {
         borderColor: theme.colors.error,

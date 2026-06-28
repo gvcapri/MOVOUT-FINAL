@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, Keyboard, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, Keyboard, KeyboardAvoidingView, Image } from 'react-native';
 
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { ArrowLeft, Package, Weight, Timer, Zap, Calendar, Upload, Type, AlertCircle, CheckCircle, CreditCard, Smartphone, Check } from 'lucide-react-native';
@@ -18,6 +18,8 @@ const RequestFreight = ({ onNavigate }) => {
   const [aiDetected, setAiDetected] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [precos, setPrecos] = useState({}); // { carro: { preco_estimado }, van: {...}, caminhao: {...} }
+  const [loadingPrecos, setLoadingPrecos] = useState(false);
 
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState('pix');
@@ -144,6 +146,28 @@ const RequestFreight = ({ onNavigate }) => {
     };
     loadPaymentMethods();
   }, []);
+
+  // Calcula precos reais do backend sempre que muda distância, peso, prioridade ou fragil
+  useEffect(() => {
+    const fetchPrecos = async () => {
+      if (calculatedDistance <= 0) return; // sem rota ainda, aguarda
+      setLoadingPrecos(true);
+      try {
+        const peso = parseFloat(cargoWeight) || 50;
+        const url = `${API_BASE_URL}/fretes/calcular-preco?distancia_km=${calculatedDistance}&peso_kg=${peso}&prioridade=${selectedPriority}&fragil=${isFragile}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          setPrecos(data);
+        }
+      } catch (e) {
+        console.warn('Erro ao calcular precos:', e);
+      } finally {
+        setLoadingPrecos(false);
+      }
+    };
+    fetchPrecos();
+  }, [calculatedDistance, cargoWeight, selectedPriority, isFragile]);
 
   // convert a Photon feature response into our suggestion format
   const mapPhotonFeature = (feature) => {
@@ -527,10 +551,26 @@ const RequestFreight = ({ onNavigate }) => {
     { id: 'schedule', label: 'Agendar', subtitle: 'escolher data', icon: Calendar, color: '#EAB308' },
   ];
 
+  const fmt = (val) => val != null
+    ? `R$ ${parseFloat(val).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+    : null;
+
   const vehicles = [
-    { name: 'Carro', icon: '🚗', capacity: 'Até 100kg', price: 'Cálculo automático', time: '45 min' },
-    { name: 'Van', icon: '🚐', capacity: 'Até 500kg', price: 'Cálculo automático', time: '1h' },
-    { name: 'Caminhão', icon: '🚚', capacity: 'Até 3 ton', price: 'Cálculo automático', time: '1h 30min' },
+    {
+      name: 'Carro', icon: '🚗', capacity: 'Até 100kg', time: '45 min',
+      key: 'carro', vehicleType: 'CARRO',
+      price: loadingPrecos ? '...' : (fmt(precos?.carro?.preco_estimado) || 'A calcular'),
+    },
+    {
+      name: 'Van', icon: '🚐', capacity: 'Até 500kg', time: '1h',
+      key: 'van', vehicleType: 'VAN',
+      price: loadingPrecos ? '...' : (fmt(precos?.van?.preco_estimado) || 'A calcular'),
+    },
+    {
+      name: 'Caminhão', icon: '🚚', capacity: 'Até 3 ton', time: '1h 30min',
+      key: 'caminhao', vehicleType: 'CAMINHAO',
+      price: loadingPrecos ? '...' : (fmt(precos?.caminhao?.preco_estimado) || 'A calcular'),
+    },
   ];
 
   const getPaymentIcon = (type) => {
@@ -562,7 +602,12 @@ const RequestFreight = ({ onNavigate }) => {
         <Text style={styles.headerSubtitle}>Solicite seu transporte</Text>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 40, paddingTop: theme.spacing.md }} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 40, paddingTop: theme.spacing.md }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.addressCard}>
           <View style={styles.addressItem}>
             <View style={[styles.dot, styles.dotOrigin]} />
@@ -853,6 +898,7 @@ const RequestFreight = ({ onNavigate }) => {
           </View>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 };

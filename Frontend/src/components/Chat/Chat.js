@@ -62,7 +62,7 @@ const Chat = ({ onNavigate, freteId, route }) => {
           <Text size="sm" style={styles.headerSubtitle}>Frete #{currentFreteId}</Text>
         </View>
       </View>
-      <KeyboardAvoidingView style={styles.body} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={10}>
+      <KeyboardAvoidingView style={styles.body} behavior={Platform.OS === 'ios' ? 'padding' : 'padding'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 90}>
         <FlatList
           ref={listRef}
           data={messages}
@@ -70,6 +70,7 @@ const Chat = ({ onNavigate, freteId, route }) => {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          showsVerticalScrollIndicator={false}
           ListEmptyComponent={<View style={styles.empty}><Text color="textSecondary">Nenhuma mensagem ainda.</Text></View>}
         />
         <View style={styles.inputBar}>
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
   messageMine: { color: theme.colors.white },
   timeText: { fontSize: 10, color: theme.colors.textSecondary, alignSelf: 'flex-end', marginTop: 4 },
   timeMine: { color: 'rgba(255,255,255,0.75)' },
-  inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: theme.spacing.md, paddingTop: 10, paddingBottom: Platform.OS === 'android' ? 42 : 44, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  inputBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: theme.spacing.md, paddingTop: 10, paddingBottom: Platform.OS === 'android' ? 12 : 14, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border },
   input: { flex: 1, maxHeight: 110, backgroundColor: theme.colors.surfaceAlt, borderRadius: theme.borderRadius.xl, paddingHorizontal: 14, paddingVertical: 12, color: theme.colors.text },
   sendButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: theme.colors.accent, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
   sendDisabled: { opacity: 0.45 },

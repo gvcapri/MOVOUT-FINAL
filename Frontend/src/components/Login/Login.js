@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, StatusBar } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, StatusBar, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { theme } from '../../theme';
 import { Text } from '../ui/Text';
 import { Button } from '../ui/Button';
@@ -51,64 +51,76 @@ const Login = ({ onNavigate, onLogin }) => {
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={theme.colors.primary} />
-            <ScrollView
-                contentContainerStyle={styles.scrollContent}
-                keyboardShouldPersistTaps="always"
+            <KeyboardAvoidingView
+                style={styles.keyboardView}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
             >
-                <View style={styles.header}>
-                    <Logo size="lg" />
-                </View>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                    <ScrollView
+                        contentContainerStyle={styles.scrollContent}
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <View style={styles.header}>
+                            <Logo size="lg" />
+                        </View>
 
-                <View style={styles.card}>
-                    <Input
-                        label="Email"
-                        placeholder="usuario@exemplo.com"
-                        value={email}
-                        onChangeText={setEmail}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                    />
+                        <View style={styles.card}>
+                            <Input
+                                label="Email"
+                                placeholder="usuario@exemplo.com"
+                                value={email}
+                                onChangeText={setEmail}
+                                autoCapitalize="none"
+                                keyboardType="email-address"
+                                returnKeyType="next"
+                                blurOnSubmit={false}
+                            />
 
-                    <Input
-                        label="Senha"
-                        placeholder="••••••••"
-                        value={senha}
-                        onChangeText={setSenha}
-                        secureTextEntry
-                    />
+                            <Input
+                                label="Senha"
+                                placeholder="••••••••"
+                                value={senha}
+                                onChangeText={setSenha}
+                                secureTextEntry
+                                returnKeyType="done"
+                                onSubmitEditing={handleSubmit}
+                            />
 
-                    {erro ? (
-                        <Text color="error" size="sm" style={styles.error}>
-                            {erro}
-                        </Text>
-                    ) : null}
+                            {erro ? (
+                                <Text color="error" size="sm" style={styles.error}>
+                                    {erro}
+                                </Text>
+                            ) : null}
 
-                    <Button
-                        title="Entrar"
-                        onPress={handleSubmit}
-                        loading={loading}
-                        variant="primary"
-                    />
+                            <Button
+                                title="Entrar"
+                                onPress={handleSubmit}
+                                loading={loading}
+                                variant="primary"
+                            />
 
-                    <Button
-                        title="Criar Conta"
-                        onPress={() => onNavigate('register')}
-                        variant="secondary"
-                        disabled={loading}
-                    />
+                            <Button
+                                title="Criar Conta"
+                                onPress={() => onNavigate('register')}
+                                variant="secondary"
+                                disabled={loading}
+                            />
 
-                    <Button
-                        title="Esqueceu a senha?"
-                        onPress={() => onNavigate('forgot')}
-                        variant="ghost"
-                        size="sm"
-                        disabled={loading}
-                        style={styles.forgotButton}
-                        textStyle={styles.forgotText}
-                    />
-                </View>
-
-            </ScrollView>
+                            <Button
+                                title="Esqueceu a senha?"
+                                onPress={() => onNavigate('forgot')}
+                                variant="ghost"
+                                size="sm"
+                                disabled={loading}
+                                style={styles.forgotButton}
+                                textStyle={styles.forgotText}
+                            />
+                        </View>
+                    </ScrollView>
+                </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
         </View>
     );
 };
@@ -118,11 +130,15 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: theme.colors.orangeBackground,
     },
+    keyboardView: {
+        flex: 1,
+    },
     scrollContent: {
         flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
         padding: theme.spacing.lg,
+        paddingBottom: 40,
     },
     header: {
         alignItems: 'center',

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, StatusBar, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, StatusBar, TouchableOpacity, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { theme } from '../../theme';
 import { Text } from '../ui/Text';
@@ -25,11 +25,13 @@ const ForgotPassword = ({ onNavigate }) => {
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={theme.colors.primary} />
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardView}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
             >
-                <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
                     <TouchableOpacity onPress={() => onNavigate('login')} style={styles.backButton}>
                         <ArrowLeft color={theme.colors.white} size={24} />
@@ -90,6 +92,7 @@ const ForgotPassword = ({ onNavigate }) => {
                     </TouchableOpacity>
 
                 </ScrollView>
+                </TouchableWithoutFeedback>
             </KeyboardAvoidingView>
         </View>
     );
