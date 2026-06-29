@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { ArrowLeft, Clock, DollarSign, Star, CheckCircle, MessageCircle, TrendingDown, Info, RefreshCw } from 'lucide-react-native';
 import { theme } from '../../theme';
-import { API_BASE_URL } from '../../api/config';
+import { API_BASE_URL, WS_BASE_URL } from '../../api/config';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = (val) =>
@@ -27,6 +27,7 @@ const Negotiation = ({ onNavigate, freightId }) => {
   const [enviandoContra, setEnviandoContra] = useState(false);
   const [aceitando, setAceitando] = useState(false);
   const [aguardandoProposta, setAguardandoProposta] = useState(true);
+  const [preFilledProposalId, setPreFilledProposalId] = useState(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const intervalRef = useRef(null);
@@ -77,10 +78,11 @@ const Negotiation = ({ onNavigate, freightId }) => {
           setAguardandoProposta(false);
           setLoading(false);
           setErrorMsg('');
-          // Pre-preenche contraproposta com 90% do valor do motorista
-          if (!contraValor) {
+          // Pre-preenche contraproposta apenas se for uma nova proposta carregada
+          if (preFilledProposalId !== (ultima.id_negociacao || ultima.id)) {
             const sugerido = (parseFloat(ultima.valor) * 0.9).toFixed(2);
             setContraValor(sugerido);
+            setPreFilledProposalId(ultima.id_negociacao || ultima.id);
           }
         } else {
           setAguardandoProposta(true);
@@ -96,7 +98,43 @@ const Negotiation = ({ onNavigate, freightId }) => {
   useEffect(() => {
     carregar();
     intervalRef.current = setInterval(carregar, POLL_INTERVAL);
-    return () => clearInterval(intervalRef.current);
+
+    let ws = null;
+    if (freightId) {
+      const wsUrl = `${WS_BASE_URL}/ws/fretes/${freightId}`;
+      console.log('[Negotiation] Connecting to WebSocket:', wsUrl);
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const dados = JSON.parse(event.data);
+          console.log('[Negotiation] WebSocket message received:', dados);
+          if (dados.tipo === 'FRETE_ACEITO' || dados.status === 'ACEITO') {
+            console.log('[Negotiation] Freight accepted, navigating to accepted screen');
+            clearInterval(intervalRef.current);
+            ws.close();
+            onNavigate('accepted', { freightId });
+          } else if (dados.tipo === 'CONTRAPROPOSTA_MOTORISTA') {
+            carregar();
+          }
+        } catch (err) {
+          console.error('[Negotiation] WS parsing error:', err);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn('[Negotiation] WS error:', err);
+      };
+
+      ws.onclose = () => {
+        console.log('[Negotiation] WS connection closed');
+      };
+    }
+
+    return () => {
+      clearInterval(intervalRef.current);
+      if (ws) ws.close();
+    };
   }, [freightId]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -182,7 +220,7 @@ const Negotiation = ({ onNavigate, freightId }) => {
   // ── Render helpers ─────────────────────────────────────────────────────────
   const renderPrecosEstimados = () => {
     if (!frete) return null;
-    const preco = frete.preco_estimado || frete.valor_total_calculado || 0;
+    const preco = frete.valor_total_calculado || frete.preco_estimado || 0;
     return (
       <View style={styles.estimativaCard}>
         <View style={styles.estimativaHeader}>
@@ -224,8 +262,9 @@ const Negotiation = ({ onNavigate, freightId }) => {
 
   const renderNegociacao = () => {
     if (!proposta) return null;
+    const driverVal = parseFloat(proposta.valor_original || proposta.valor || 0);
     const diferenca = frete
-      ? ((parseFloat(proposta.valor) - parseFloat(frete.preco_estimado || 0)) / parseFloat(frete.preco_estimado || 1)) * 100
+      ? ((driverVal - parseFloat(frete.preco_estimado || 0)) / parseFloat(frete.preco_estimado || 1)) * 100
       : 0;
 
     return (
@@ -259,14 +298,14 @@ const Negotiation = ({ onNavigate, freightId }) => {
           <View style={styles.priceComparison}>
             <View style={styles.priceBox}>
               <Text style={styles.priceBoxLabel}>App Estimou</Text>
-              <Text style={styles.priceBoxValue}>{fmt(frete?.preco_estimado || 0)}</Text>
+              <Text style={styles.priceBoxValue}>{fmt(frete?.valor_total_calculado || frete?.preco_estimado || 0)}</Text>
             </View>
             <View style={styles.priceArrow}>
               <Text style={styles.priceArrowText}>→</Text>
             </View>
             <View style={[styles.priceBox, styles.priceBoxDriver]}>
               <Text style={styles.priceBoxLabel}>Motorista Pede</Text>
-              <Text style={[styles.priceBoxValue, styles.priceBoxDriverValue]}>{fmt(proposta.valor)}</Text>
+              <Text style={[styles.priceBoxValue, styles.priceBoxDriverValue]}>{fmt(proposta.valor_original || proposta.valor)}</Text>
               {Math.abs(diferenca) > 1 && (
                 <Text style={[styles.priceDiff, diferenca > 0 ? styles.priceDiffUp : styles.priceDiffDown]}>
                   {diferenca > 0 ? '+' : ''}{diferenca.toFixed(0)}%

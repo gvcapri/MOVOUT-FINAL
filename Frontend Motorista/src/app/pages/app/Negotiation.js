@@ -20,6 +20,16 @@ export default function Negotiation({ navigation, route }) {
   const [tempoEstimado, setTempoEstimado] = useState('30 min');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [forceShowForm, setForceShowForm] = useState(false);
+
+  const motoristaId = user?.id_motorista || user?.id || 1;
+  const activeProposal = frete?.propostas?.find(p => p.motorista_id === motoristaId && p.status === 'PENDENTE');
+  const isProposalSent = (sent || !!activeProposal) && !forceShowForm;
+  const hasCounter = activeProposal && activeProposal.valor_original && Number(activeProposal.valor) !== Number(activeProposal.valor_original);
+
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+  };
 
   // new states for map preview when frete is aceito
   const [originPoint, setOriginPoint] = useState(null);
@@ -144,6 +154,20 @@ export default function Negotiation({ navigation, route }) {
     }
   };
 
+  const handleAcceptCounterProposal = async () => {
+    setSending(true);
+    try {
+      await axios.post(`${API_BASE_URL}/fretes/${freteId}/aceitar-proposta?motorista_id=${motoristaId}`);
+      Alert.alert('Sucesso', 'Você aceitou a contraproposta do cliente!');
+      navigation.replace('RideDetail', { rideId: freteId });
+    } catch (error) {
+      console.error('Erro ao aceitar contraproposta:', error.response?.data || error.message);
+      Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível aceitar a contraproposta.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   // Enviar proposta ao backend
   const handleSendProposal = async () => {
     if (!proposal || parseFloat(proposal.replace(',', '.')) <= 0) {
@@ -160,6 +184,8 @@ export default function Negotiation({ navigation, route }) {
         tempo_estimado: tempoEstimado,
       });
       setSent(true);
+      setForceShowForm(false);
+      await fetchFrete(); // Instant UI update!
       Alert.alert('Contraproposta enviada!', 'O cliente receberá sua contraproposta e poderá aceitar ou cancelar.');
     } catch (error) {
       console.error('Erro ao enviar proposta:', error);
@@ -169,14 +195,15 @@ export default function Negotiation({ navigation, route }) {
     }
   };
 
-  // Cancelar / desistir do frete
+  // Cancelar / desistir do frete (retira apenas a proposta do motorista)
   const handleCancel = async () => {
     try {
-      await axios.post(`${API_BASE_URL}/fretes/${freteId}/cancelar`);
-      Alert.alert('Frete cancelado', 'Você desistiu deste frete.');
+      await axios.post(`${API_BASE_URL}/fretes/${freteId}/motorista-cancelar-proposta?motorista_id=${motoristaId}`);
+      Alert.alert('Proposta cancelada', 'Você retirou sua proposta.');
       navigation.goBack();
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível cancelar o frete.');
+      console.error('Erro ao cancelar proposta:', error);
+      navigation.goBack();
     }
   };
 
@@ -296,7 +323,7 @@ export default function Negotiation({ navigation, route }) {
           </MapView>
         </Card>
       )}
-      {!sent && frete.status === 'aberto' && (
+      {!isProposalSent && ['aberto', 'pendente', 'negociando'].includes(frete?.status?.toLowerCase()) && (
         <Card style={styles.card}>
           <Text style={styles.cardTitle}>Negociação</Text>
           <Text style={styles.helperText}>Você pode aceitar o valor estimado do cliente ou enviar uma contraproposta para ele aprovar.</Text>
@@ -342,15 +369,52 @@ export default function Negotiation({ navigation, route }) {
       )}
 
       {/* Proposta enviada */}
-      {sent && (
+      {isProposalSent && (
         <Card style={styles.card}>
-          <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-            <Text style={{ fontSize: 48 }}>✅</Text>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10B981', marginTop: 12 }}>Proposta Enviada!</Text>
-            <Text style={{ color: theme.colors.textSecondary, marginTop: 8, textAlign: 'center' }}>
-              Aguarde o cliente aceitar ou cancelar sua contraproposta de R$ {proposal}
-            </Text>
-          </View>
+          {hasCounter ? (
+            <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+              <Text style={{ fontSize: 40 }}>💬</Text>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.primary, marginTop: 8 }}>Contraproposta do Cliente!</Text>
+              <Text style={{ color: theme.colors.textSecondary, marginTop: 6, textAlign: 'center' }}>
+                O cliente propôs o valor de <Text style={{ fontWeight: 'bold', color: theme.colors.black }}>{formatCurrency(activeProposal.valor)}</Text> para esta corrida.
+              </Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+                Seu valor original: {formatCurrency(activeProposal.valor_original)}
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, width: '100%' }}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: theme.colors.surfaceAlt, flex: 1, borderWidth: 1, borderColor: theme.colors.border }]}
+                  onPress={() => setForceShowForm(true)}
+                >
+                  <Text style={{ color: theme.colors.textSecondary, fontWeight: 'bold', textAlign: 'center' }}>Nova Proposta</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: theme.colors.success, flex: 1 }]}
+                  onPress={handleAcceptCounterProposal}
+                  disabled={sending}
+                >
+                  <Text style={{ color: '#FFF', fontWeight: 'bold', textAlign: 'center' }}>
+                    {sending ? 'Processando...' : `Aceitar (${formatCurrency(activeProposal.valor)})`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+              <Text style={{ fontSize: 48 }}>✅</Text>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10B981', marginTop: 12 }}>Proposta Enviada!</Text>
+              <Text style={{ color: theme.colors.textSecondary, marginTop: 8, textAlign: 'center', marginBottom: 15 }}>
+                Aguarde o cliente aceitar ou cancelar sua contraproposta de R$ {activeProposal ? activeProposal.valor : proposal}
+              </Text>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: theme.colors.primary, width: '100%' }]}
+                onPress={() => setForceShowForm(true)}
+              >
+                <Text style={{ color: '#FFF', fontWeight: 'bold', textAlign: 'center' }}>Alterar Valor da Proposta</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </Card>
       )}
 
@@ -365,6 +429,12 @@ export default function Negotiation({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
+  actionBtn: {
+    padding: 12,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   card: {
     padding: theme.spacing.lg,
     marginTop: theme.spacing.md,

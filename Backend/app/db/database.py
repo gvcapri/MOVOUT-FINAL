@@ -55,6 +55,7 @@ def create_db_and_tables():
     from app.models.models import Motorista, PedidoFrete, PropostaFrete, MensagemChat
     SQLModel.metadata.create_all(engine)
     _ensure_pedidofrete_columns()
+    _ensure_negociacao_columns()
     _ensure_movout_aux_tables()
 
 
@@ -201,6 +202,16 @@ def _ensure_movout_aux_tables():
             criada_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             KEY idx_avaliacao7_frete (id_frete)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS saque_motorista7 (
+            id_saque INT AUTO_INCREMENT PRIMARY KEY,
+            id_motorista INT NOT NULL,
+            valor DECIMAL(10,2) NOT NULL,
+            chave_pix VARCHAR(100) NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_saque_motorista_id (id_motorista)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """
     ]
     try:
@@ -260,3 +271,25 @@ def _ensure_movout_aux_tables():
                 print(f"Aviso ao criar view vw_cliente_perfil7: {e}")
     except Exception as e:
         print(f"Aviso ao criar tabelas auxiliares Movout: {e}")
+
+def _ensure_negociacao_columns():
+    """
+    Garante a coluna preco_original na tabela negociacao7.
+    """
+    try:
+        with engine.begin() as conn:
+            existing = conn.execute(
+                text(
+                    "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'negociacao7'"
+                )
+            ).fetchall()
+            
+            if existing:
+                existing_names = {row[0].lower() for row in existing}
+                if "preco_original" not in existing_names:
+                    print("--- Adicionando coluna preco_original em negociacao7 ---")
+                    conn.execute(text("ALTER TABLE negociacao7 ADD COLUMN preco_original DECIMAL(10,2) NULL"))
+                    conn.execute(text("UPDATE negociacao7 SET preco_original = preco_proposto WHERE preco_original IS NULL"))
+    except Exception as e:
+        print(f"Aviso ao ajustar schema negociacao7: {e}")

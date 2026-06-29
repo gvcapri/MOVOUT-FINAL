@@ -20,6 +20,11 @@ class PerfilMotoristaUpdate(BaseModel):
     placa: Optional[str] = None
 
 
+class SaqueCreate(BaseModel):
+    valor: float
+    chave_pix: str
+
+
 
 def _resolve_motorista_id(db: Session, identifier: int | None) -> int:
     if identifier:
@@ -87,7 +92,9 @@ def obter_perfil_motorista(motorista_id: int, db: Session = Depends(get_session)
     stats = db.execute(
         text(
             """
-            SELECT COUNT(*) AS total, SUM(IFNULL(preco_fechado, preco_estimado)) AS saldo
+            SELECT 
+                COUNT(*) AS total, 
+                (COALESCE(SUM(IFNULL(preco_fechado, preco_estimado)), 0) - COALESCE((SELECT SUM(valor) FROM saque_motorista7 WHERE id_motorista = :motorista_id), 0)) AS saldo
             FROM frete7
             WHERE id_motorista = :motorista_id
               AND status IN ('ACEITO', 'EM_TRANSITO', 'AGUARDANDO_CONFIRMACAO', 'PAGAMENTO_LIBERADO', 'CONCLUIDO')
@@ -202,3 +209,52 @@ def obter_carteira_motorista(motorista_id: int, db: Session = Depends(get_sessio
         return {"id_motorista": motorista_id, "saldo_disponivel": 0.0, "saldo_pendente": 0.0}
     m = row._mapping
     return {"id_motorista": motorista_id, "saldo_disponivel": float(m.get("saldo_disponivel") or 0), "saldo_pendente": float(m.get("saldo_pendente") or 0)}
+
+
+@router.post("/{motorista_id}/sacar")
+def motorista_sacar(motorista_id: int, dados: SaqueCreate, db: Session = Depends(get_session)):
+    motorista_id = _resolve_motorista_id(db, motorista_id)
+    
+    # Obter o total bruto dos fretes
+    saldo_bruto = db.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(IFNULL(preco_fechado, preco_estimado)), 0)
+            FROM frete7
+            WHERE id_motorista = :motorista_id
+              AND status IN ('ACEITO', 'EM_TRANSITO', 'AGUARDANDO_CONFIRMACAO', 'PAGAMENTO_LIBERADO', 'CONCLUIDO')
+            """
+        ),
+        {"motorista_id": motorista_id},
+    ).scalar() or 0.0
+    
+    # Obter total já sacado
+    total_sacado = db.execute(
+        text("SELECT COALESCE(SUM(valor), 0) FROM saque_motorista7 WHERE id_motorista = :motorista_id"),
+        {"motorista_id": motorista_id},
+    ).scalar() or 0.0
+    
+    saldo_disponivel = float(saldo_bruto) - float(total_sacado)
+    
+    if dados.valor <= 0:
+        raise HTTPException(status_code=400, detail="Valor de saque deve ser maior que zero.")
+        
+    if dados.valor > saldo_disponivel:
+        raise HTTPException(status_code=400, detail="Saldo insuficiente para realizar o saque.")
+        
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO saque_motorista7 (id_motorista, valor, chave_pix)
+                VALUES (:id_motorista, :valor, :chave_pix)
+                """
+            ),
+            {"id_motorista": motorista_id, "valor": dados.valor, "chave_pix": dados.chave_pix},
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar saque: {e}")
+        
+    return {"status": "saque_realizado", "valor": dados.valor, "saldo_restante": saldo_disponivel - dados.valor}

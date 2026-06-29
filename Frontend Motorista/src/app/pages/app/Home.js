@@ -58,7 +58,7 @@ export default function Home({ navigation }) {
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Fretes Disponíveis</Text>
         <Text style={styles.sectionSubtitle}>
-          {loading ? 'Carregando...' : `${freights.length} solicitação(ões) aguardando`}
+          {loading ? 'Carregando...' : `${freights.length} solicitações aguardando`}
         </Text>
       </View>
 

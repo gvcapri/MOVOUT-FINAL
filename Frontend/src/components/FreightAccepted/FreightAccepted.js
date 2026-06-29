@@ -22,6 +22,33 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
   const [routeCoords, setRouteCoords] = useState([]);
   const [routeDriverOrigin, setRouteDriverOrigin] = useState([]); // street route from driver to pickup
 
+  const handleCancelFreight = () => {
+    Alert.alert(
+      'Cancelar Corrida',
+      'Tem certeza que deseja cancelar esta corrida? Esta ação não pode ser desfeita.',
+      [
+        { text: 'Não', style: 'cancel' },
+        {
+          text: 'Sim, Cancelar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_BASE_URL}/fretes/${idDoFrete}/cancelar`, { method: 'POST' });
+              if (response.ok) {
+                Alert.alert('Corrida Cancelada', 'Sua corrida foi cancelada com sucesso.');
+                onNavigate('home');
+              } else {
+                Alert.alert('Erro', 'Não foi possível cancelar a corrida.');
+              }
+            } catch (err) {
+              Alert.alert('Erro', 'Erro de conexão com o servidor.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   useEffect(() => {
     const wsUrl = `${WS_BASE_URL}/ws/fretes/${idDoFrete}`;
     ws.current = new WebSocket(wsUrl);
@@ -41,9 +68,57 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
       if (dados.tipo === 'DETECCAO_OBJETO') {
         setObjetoConfirmadoIA(dados.objeto);
       }
+
+      if (dados.tipo === 'MOTORISTA_DESISTIU') {
+        ws.current?.close();
+        Alert.alert('Motorista desistiu', 'O motorista desistiu da corrida. Voltando para a tela de negociação.');
+        onNavigate('negotiation', { freightId: idDoFrete });
+      }
+
+      if (dados.status?.toLowerCase() === 'concluido' || dados.tipo === 'FRETE_CONCLUIDO') {
+        ws.current?.close();
+        onNavigate('summary', { freightId: idDoFrete });
+      }
     };
 
     return () => ws.current?.close();
+  }, [idDoFrete]);
+
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/fretes/${idDoFrete}`);
+        if (response.ok) {
+          const frete = await response.json();
+          const status = frete.status?.toLowerCase();
+          
+          if (status === 'concluido') {
+            ws.current?.close();
+            onNavigate('summary', { freightId: idDoFrete });
+            return;
+          } else if (status === 'pendente' || status === 'aberto') {
+            Alert.alert('Motorista desistiu', 'O motorista desistiu da corrida. Voltando para a tela de negociação.');
+            onNavigate('negotiation', { freightId: idDoFrete });
+            return;
+          }
+
+          // Atualiza dados do motorista se já atribuído
+          if (frete.motorista) {
+            setMotorista(frete.motorista);
+            if (status === 'em andamento' || status === 'em_transito') {
+              setStatusCorrida('Motorista a caminho');
+            } else {
+              setStatusCorrida('Motorista aceitou a corrida');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error checking freight status in FreightAccepted:', err);
+      }
+    };
+
+    const interval = setInterval(checkStatus, 5000);
+    return () => clearInterval(interval);
   }, [idDoFrete]);
 
   useEffect(() => {
@@ -368,10 +443,16 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
           <MessageCircle color="white" size={24} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => onNavigate('home')} style={styles.homeBtn}>
-          <Home color="white" size={20} />
-          <Text style={styles.homeText}>Voltar ao inicio</Text>
-        </TouchableOpacity>
+        <View style={styles.footerRow}>
+          <TouchableOpacity onPress={handleCancelFreight} style={styles.cancelBtn}>
+            <Text style={styles.cancelText}>Cancelar Corrida</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => onNavigate('home')} style={styles.homeBtn}>
+            <Home color="white" size={16} />
+            <Text style={styles.homeText}>Voltar ao inicio</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -478,6 +559,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
   homeBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -485,9 +567,6 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent,
     padding: 12,
     borderRadius: theme.borderRadius.round,
-    alignSelf: 'center',
-    marginTop: 10,
-    paddingHorizontal: theme.spacing.lg,
     ...theme.shadows.md,
   },
   floatingChat: {
@@ -503,6 +582,21 @@ const styles = StyleSheet.create({
     ...theme.shadows.lg,
   },
   homeText: { color: theme.colors.white, fontSize: 14, fontWeight: 'bold' },
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: '#EF4444',
+    padding: 12,
+    borderRadius: theme.borderRadius.round,
+    alignItems: 'center',
+    ...theme.shadows.md,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+    width: '100%',
+  },
+  cancelText: { color: theme.colors.white, fontSize: 14, fontWeight: 'bold' },
 });
 
 export default FreightAccepted;

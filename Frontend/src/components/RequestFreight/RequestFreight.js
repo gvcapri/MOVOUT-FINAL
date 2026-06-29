@@ -39,6 +39,70 @@ const RequestFreight = ({ onNavigate }) => {
   // Localização do usuário para dar prioridade a resultados próximos
   const [userLocation, setUserLocation] = useState({ lat: -15.601, lon: -56.097 }); // Cuiabá como fallback
 
+  useEffect(() => {
+    const restoreFormState = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('pending_freight_form');
+        if (stored) {
+          const state = JSON.parse(stored);
+          if (state.selectedPriority) setSelectedPriority(state.selectedPriority);
+          if (state.objectDescription) setObjectDescription(state.objectDescription);
+          if (state.cargoWeight) setCargoWeight(state.cargoWeight);
+          if (state.isFragile !== undefined) setIsFragile(state.isFragile);
+          if (state.aiDetected) setAiDetected(state.aiDetected);
+          if (state.selectedPaymentId) setSelectedPaymentId(state.selectedPaymentId);
+          if (state.origin) setOrigin(state.origin);
+          if (state.destination) setDestination(state.destination);
+          if (state.originCoords) setOriginCoords(state.originCoords);
+          if (state.destinationCoords) setDestinationCoords(state.destinationCoords);
+          if (state.routeCoords) setRouteCoords(state.routeCoords);
+          if (state.routeDistance) setRouteDistance(state.routeDistance);
+          console.log('[RequestFreight] Form state restored.');
+          
+          await AsyncStorage.removeItem('pending_freight_form');
+        }
+      } catch (e) {
+        console.warn('Error restoring form state', e);
+      }
+    };
+    restoreFormState();
+  }, []);
+
+  const saveFormState = async () => {
+    try {
+      const state = {
+        selectedPriority,
+        objectDescription,
+        cargoWeight,
+        isFragile,
+        aiDetected,
+        selectedPaymentId,
+        origin,
+        destination,
+        originCoords,
+        destinationCoords,
+        routeCoords,
+        routeDistance,
+      };
+      await AsyncStorage.setItem('pending_freight_form', JSON.stringify(state));
+      console.log('[RequestFreight] Form state saved.');
+    } catch (e) {
+      console.warn('Error saving form state', e);
+    }
+  };
+
+  const handleGoToPayments = async () => {
+    await saveFormState();
+    onNavigate('payments', { from: 'request' });
+  };
+
+  const handleBackToHome = async () => {
+    try {
+      await AsyncStorage.removeItem('pending_freight_form');
+    } catch {}
+    onNavigate('home');
+  };
+
   const originDebounceRef = useRef(null);
   const destinationDebounceRef = useRef(null);
 
@@ -534,6 +598,9 @@ const RequestFreight = ({ onNavigate }) => {
 
       if (response.ok) {
         const data = await response.json();
+        try {
+          await AsyncStorage.removeItem('pending_freight_form');
+        } catch {}
         onNavigate('negotiation', { freightId: data.id });
       } else {
         alert('Erro ao criar frete no servidor');
@@ -594,7 +661,7 @@ const RequestFreight = ({ onNavigate }) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('home')} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBackToHome} style={styles.backButton}>
           <ArrowLeft color="#fff" size={24} />
         </TouchableOpacity>
 
@@ -609,7 +676,7 @@ const RequestFreight = ({ onNavigate }) => {
       >
       <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 40, paddingTop: theme.spacing.md }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.addressCard}>
-          <View style={styles.addressItem}>
+          <View style={[styles.addressItem, { zIndex: 10 }]}>
             <View style={[styles.dot, styles.dotOrigin]} />
             <View style={styles.addressContent}>
               <View style={styles.addressHeaderRow}>
@@ -639,7 +706,7 @@ const RequestFreight = ({ onNavigate }) => {
 
           <View style={styles.divider} />
 
-          <View style={styles.addressItem}>
+          <View style={[styles.addressItem, { zIndex: 5 }]}>
             <View style={[styles.dot, styles.dotDest]} />
             <View style={styles.addressContent}>
               <Text style={styles.addressLabel}>Destino (Entrega)</Text>
@@ -891,7 +958,7 @@ const RequestFreight = ({ onNavigate }) => {
             })}
             <TouchableOpacity
               style={styles.addMorePaymentBtn}
-              onPress={() => onNavigate('payments')}
+              onPress={handleGoToPayments}
             >
               <Text style={styles.addMorePaymentText}>+ Gerenciar cartões</Text>
             </TouchableOpacity>
@@ -939,7 +1006,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-  divider: { height: 1, backgroundColor: theme.colors.border, marginVertical: 12 },
+  divider: { height: 1, backgroundColor: theme.colors.border, marginVertical: 20 },
 
   content: { flex: 1 },
   card: {

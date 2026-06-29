@@ -10,6 +10,7 @@ const FreightDetails = ({ onNavigate, freightId }) => {
   const [frete, setFrete] = useState(null);
   const [pagamento, setPagamento] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isRating, setIsRating] = useState(false);
 
   const load = async () => {
     try {
@@ -48,6 +49,8 @@ const FreightDetails = ({ onNavigate, freightId }) => {
   };
 
   const avaliarMotorista = async (nota) => {
+    if (isRating) return;
+    setIsRating(true);
     try {
       const r = await fetch(`${API_BASE_URL}/fretes/${freightId}/avaliar`, {
         method: 'POST',
@@ -60,6 +63,8 @@ const FreightDetails = ({ onNavigate, freightId }) => {
       load();
     } catch (e) {
       Alert.alert('Erro', e.message || 'Não foi possível avaliar.');
+    } finally {
+      setIsRating(false);
     }
   };
 
@@ -116,14 +121,23 @@ const FreightDetails = ({ onNavigate, freightId }) => {
         <View style={styles.ratingBox}>
           <Text size="md" weight="bold">Avaliar motorista</Text>
           <Text size="sm" color="textSecondary">{motorista.nome || frete.motorista_nome || 'Motorista'}</Text>
-          <View style={styles.starsRow}>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <TouchableOpacity key={n} style={styles.starButton} onPress={() => avaliarMotorista(n)}>
-                <Text size="xl">⭐</Text>
-                <Text size="xs">{n}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {isRating ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 12 }} />
+          ) : (
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <TouchableOpacity 
+                  key={n} 
+                  style={styles.starButton} 
+                  onPress={() => avaliarMotorista(n)}
+                  disabled={isRating}
+                >
+                  <Text size="xl">⭐</Text>
+                  <Text size="xs">{n}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
         <TouchableOpacity style={styles.chatButton} onPress={() => onNavigate('chat', { freightId })}>

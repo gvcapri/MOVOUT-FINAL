@@ -26,6 +26,7 @@ import Profile from './src/components/Profile/Profile';
 import PaymentMethods from './src/components/Profile/PaymentMethods';
 import EditProfile from './src/components/Profile/EditProfile';
 import FAQ from './src/components/FAQ/FAQ';
+import FreightSummary from './src/components/FreightSummary/FreightSummary';
 
 // Tipos de telas disponíveis
 export const Screen = {
@@ -44,6 +45,7 @@ export const Screen = {
   PAYMENTS: 'payments',
   EDIT_PROFILE: 'editProfile',
   FAQ: 'faq',
+  SUMMARY: 'summary',
 };
 
 function App() {
@@ -110,7 +112,9 @@ function App() {
       case Screen.PROFILE:
         return <Profile onNavigate={handleNavigate} onLogout={handleLogout} />;
       case Screen.PAYMENTS:
-        return <PaymentMethods onNavigate={handleNavigate} />;
+        return <PaymentMethods onNavigate={handleNavigate} from={screenParams?.from} />;
+      case Screen.SUMMARY:
+        return <FreightSummary onNavigate={handleNavigate} freightId={screenParams.freightId} />;
       case Screen.EDIT_PROFILE:
         return <EditProfile onNavigate={handleNavigate} />;
       case Screen.FAQ:

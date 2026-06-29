@@ -393,6 +393,7 @@ def _proposal_rows(db: Session, frete_id: int) -> list[dict[str, Any]]:
         SELECT
             n.id_negociacao, n.id_frete, n.id_motorista, n.id_veiculo,
             n.preco_proposto, n.status,
+            COALESCE(n.preco_original, n.preco_proposto) AS preco_original,
             p.nome AS nome_motorista,
             m.avaliacao_media,
             v.tipo, v.marca, v.modelo, v.placa
@@ -418,6 +419,7 @@ def _proposal_rows(db: Session, frete_id: int) -> list[dict[str, Any]]:
                 "id_motorista": int(m["id_motorista"]),
                 "nome_motorista": m.get("nome_motorista") or "Motorista",
                 "valor": _money(m.get("preco_proposto")),
+                "valor_original": _money(m.get("preco_original")),
                 "tempo_estimado": "30 min",
                 "rating": _money(m.get("avaliacao_media"), 4.8),
                 "status": m.get("status") or "PENDENTE",
@@ -520,13 +522,14 @@ def _insert_negociacao(db: Session, frete_id: int, motorista_id: int, veiculo_id
         "id_motorista": motorista_id,
         "id_veiculo": veiculo_id,
         "preco_proposto": valor,
+        "preco_original": valor,
         "distancia_km": _money(frete_map.get("distancia_km")),
         "volume_carga": max(_money(frete_map.get("volume_carga_total")), 0.0001),
         "peso_carga": max(_money(frete_map.get("peso_total_kg")), 0.01),
         "status": status,
         "observacoes": "Proposta gerada pelo app Movout",
     }
-    insert_cols = [c for c in ["id_frete", "id_motorista", "id_veiculo", "preco_proposto", "distancia_km", "volume_carga", "peso_carga", "status", "observacoes"] if c in cols]
+    insert_cols = [c for c in ["id_frete", "id_motorista", "id_veiculo", "preco_proposto", "preco_original", "distancia_km", "volume_carga", "peso_carga", "status", "observacoes"] if c in cols]
     required = {"id_frete", "id_motorista", "id_veiculo", "preco_proposto"}
     missing = required - set(insert_cols)
     if missing:
@@ -821,6 +824,19 @@ def enviar_proposta(frete_id: int, dados: PropostaFreteCreate, session: Session 
     veiculo_id = _veiculo_motorista(session, motorista_id)
 
     try:
+        if _table_exists(session, "negociacao7"):
+            session.execute(
+                text(
+                    """
+                    UPDATE negociacao7 
+                    SET status = 'CANCELADA' 
+                    WHERE id_frete = :frete_id 
+                      AND id_motorista = :motorista_id 
+                      AND status = 'PENDENTE'
+                    """
+                ),
+                {"frete_id": frete_id, "motorista_id": motorista_id},
+            )
         id_negociacao = _insert_negociacao(session, frete_id, motorista_id, veiculo_id, float(dados.valor), fm, "PENDENTE")
         session.execute(text("UPDATE frete7 SET status = 'NEGOCIANDO' WHERE id_frete = :id AND status = 'PENDENTE'"), {"id": frete_id})
         session.commit()
@@ -1062,7 +1078,99 @@ def cancelar_frete(frete_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Frete não encontrado")
     session.execute(text("UPDATE frete7 SET status = 'CANCELADO' WHERE id_frete = :id"), {"id": frete_id})
     session.commit()
+
+    # Notifica o motorista via WebSocket
+    try:
+        import asyncio
+        ws_payload = {"tipo": "FRETE_CANCELADO", "frete_id": frete_id}
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_location(frete_id, ws_payload))
+        except RuntimeError:
+            asyncio.run(manager.send_location(frete_id, ws_payload))
+    except Exception:
+        pass
+
     return {"status": "cancelado", "frete_id": frete_id, "novo_status": "cancelado"}
+
+@router.post("/{frete_id}/motorista-desistir")
+def motorista_desistir(frete_id: int, session: Session = Depends(get_session)):
+    row = _frete_row(session, frete_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Frete não encontrado")
+    
+    # Limpa dados do motorista no frete e volta para PENDENTE
+    session.execute(
+        text(
+            """
+            UPDATE frete7 
+            SET status = 'PENDENTE', 
+                id_motorista = NULL, 
+                id_veiculo = NULL, 
+                preco_fechado = NULL,
+                motorista_confirmou_conclusao = 0,
+                cliente_confirmou_conclusao = 0,
+                concluido_em = NULL
+            WHERE id_frete = :id
+            """
+        ),
+        {"id": frete_id},
+    )
+    
+    # Cancela negociação ativa
+    if _table_exists(session, "negociacao7"):
+        session.execute(
+            text("UPDATE negociacao7 SET status = 'CANCELADA' WHERE id_frete = :id AND status = 'ACEITA'"),
+            {"id": frete_id},
+        )
+        
+    session.commit()
+
+    # Notifica o cliente via WebSocket
+    try:
+        import asyncio
+        ws_payload = {"tipo": "MOTORISTA_DESISTIU", "frete_id": frete_id}
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_location(frete_id, ws_payload))
+        except RuntimeError:
+            asyncio.run(manager.send_location(frete_id, ws_payload))
+    except Exception:
+        pass
+
+    return {"status": "motorista_desistiu", "frete_id": frete_id, "novo_status": "PENDENTE"}
+
+
+@router.post("/{frete_id}/motorista-cancelar-proposta")
+def motorista_cancelar_proposta(frete_id: int, motorista_id: int, session: Session = Depends(get_session)):
+    if _table_exists(session, "negociacao7"):
+        session.execute(
+            text(
+                """
+                UPDATE negociacao7 
+                SET status = 'CANCELADA' 
+                WHERE id_frete = :frete_id 
+                  AND id_motorista = :motorista_id 
+                  AND status = 'PENDENTE'
+                """
+            ),
+            {"frete_id": frete_id, "motorista_id": motorista_id},
+        )
+        session.commit()
+
+        # Notifica o cliente via WebSocket para atualizar a lista
+        try:
+            import asyncio
+            ws_payload = {"tipo": "PROPOSTA_MOTORISTA_CANCELADA", "frete_id": frete_id, "motorista_id": motorista_id}
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(manager.send_location(frete_id, ws_payload))
+            except RuntimeError:
+                asyncio.run(manager.send_location(frete_id, ws_payload))
+        except Exception:
+            pass
+
+    return {"status": "proposta_cancelada"}
 
 
 @router.post("/{frete_id}/match")
@@ -1128,6 +1236,18 @@ def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int
             )
             
         session.commit()
+
+        # Notifica o cliente via WebSocket sobre a conclusão
+        try:
+            import asyncio
+            ws_payload = {"tipo": "FRETE_CONCLUIDO", "status": "concluido", "frete_id": frete_id}
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(manager.send_location(frete_id, ws_payload))
+            except RuntimeError:
+                asyncio.run(manager.send_location(frete_id, ws_payload))
+        except Exception:
+            pass
     except Exception as exc:
         session.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao marcar corrida concluída: {exc}") from exc

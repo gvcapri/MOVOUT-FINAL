@@ -29,7 +29,7 @@ import { API_BASE_URL } from '../../api/config';
 const STORAGE_KEY = 'paymentMethods';
 
 
-const PaymentMethods = ({ onNavigate }) => {
+const PaymentMethods = ({ onNavigate, from }) => {
   const [methods, setMethods] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [selectedType, setSelectedType] = useState('credit');
@@ -235,7 +235,16 @@ const PaymentMethods = ({ onNavigate }) => {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <TouchableOpacity onPress={() => onNavigate('profile')} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() => {
+              if (from === 'request') {
+                onNavigate('request');
+              } else {
+                onNavigate('profile');
+              }
+            }}
+            style={styles.backButton}
+          >
             <ArrowLeft color={theme.colors.white} size={24} />
           </TouchableOpacity>
           <Text size="lg" weight="bold" style={styles.headerTitle}>

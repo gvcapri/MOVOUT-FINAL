@@ -1,11 +1,12 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/app/context/AuthContext';
+import { Truck, History as HistoryIcon, MessageSquare, HelpCircle, User } from 'lucide-react-native';
 
 // AUTH SCREENS
 import Login from './src/app/pages/auth/Login';
@@ -37,15 +38,16 @@ function MainTabs() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: '#FFF',
-          borderTopWidth: 0,
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
           elevation: 5,
-          height: 110, // Increased height
-          paddingBottom: 20, // Added padding for system gestures
+          height: Platform.OS === 'ios' ? 90 : 70,
+          paddingBottom: Platform.OS === 'ios' ? 30 : 10,
           paddingTop: 10
         },
         tabBarActiveTintColor: '#FF914D', // Orange
-        tabBarInactiveTintColor: '#000', // Black
-        tabBarLabelStyle: { fontSize: 12, fontWeight: 'bold' }
+        tabBarInactiveTintColor: '#9CA3AF', // Gray
+        tabBarLabelStyle: { fontSize: 11, fontWeight: 'bold' }
       }}
     >
       <Tab.Screen
@@ -54,7 +56,7 @@ function MainTabs() {
         options={{
           tabBarLabel: 'Fretes',
           tabBarIcon: ({ color, size }) => (
-            <Text style={{ color, fontSize: size }}>📦</Text>
+            <Truck color={color} size={size} />
           )
         }}
       />
@@ -64,7 +66,7 @@ function MainTabs() {
         options={{
           tabBarLabel: 'Histórico',
           tabBarIcon: ({ color, size }) => (
-            <Text style={{ color, fontSize: size }}>⏱️</Text>
+            <HistoryIcon color={color} size={size} />
           )
         }}
       />
@@ -74,7 +76,7 @@ function MainTabs() {
         options={{
           tabBarLabel: 'Conversas',
           tabBarIcon: ({ color, size }) => (
-            <Text style={{ color, fontSize: size }}>💬</Text>
+            <MessageSquare color={color} size={size} />
           )
         }}
       />
@@ -84,7 +86,7 @@ function MainTabs() {
         options={{
           tabBarLabel: 'Ajuda',
           tabBarIcon: ({ color, size }) => (
-            <Text style={{ color, fontSize: size }}>❓</Text>
+            <HelpCircle color={color} size={size} />
           )
         }}
       />
@@ -94,7 +96,7 @@ function MainTabs() {
         options={{
           tabBarLabel: 'Perfil',
           tabBarIcon: ({ color, size }) => (
-            <Text style={{ color, fontSize: size }}>👤</Text>
+            <User color={color} size={size} />
           )
         }}
       />

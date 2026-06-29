@@ -8,6 +8,7 @@ import {
   Platform,
   TouchableOpacity,
   StatusBar,
+  Alert,
 } from 'react-native';
 import Text from '../../layouts/Components/Text';
 import { theme } from '../../theme';
@@ -69,8 +70,17 @@ export default function ChatDetail({ route, navigation }) {
       const res = await fetch(`${API_BASE_URL}/fretes/${chatId}/motorista-concluir`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Erro ao marcar corrida como concluída');
-      alert('Corrida concluída. Agora você pode avaliar o cliente apenas uma vez.');
-    } catch (e) { alert(e.message || 'Não foi possível marcar a corrida como concluída.'); }
+      Alert.alert(
+        'Corrida Concluída',
+        'Corrida concluída. Agora você pode avaliar o cliente.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('RideDetail', { rideId: chatId })
+          }
+        ]
+      );
+    } catch (e) { Alert.alert('Erro', e.message || 'Não foi possível marcar a corrida como concluída.'); }
   };
 
   const avaliarCliente = async () => {
@@ -82,8 +92,19 @@ export default function ChatDetail({ route, navigation }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Erro ao avaliar cliente');
-      alert(data?.resultado_pagamento?.liberado ? 'Cliente avaliado. As duas avaliações foram feitas e o saldo foi liberado.' : 'Cliente avaliado. O saldo será liberado quando o cliente também avaliar.');
-    } catch (e) { alert(e.message || 'Não foi possível avaliar cliente.'); }
+      Alert.alert(
+        'Cliente Avaliado',
+        data?.resultado_pagamento?.liberado 
+          ? 'Cliente avaliado. As duas avaliações foram feitas e o saldo foi liberado.' 
+          : 'Cliente avaliado. O saldo será liberado quando o cliente também avaliar.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('RideDetail', { rideId: chatId })
+          }
+        ]
+      );
+    } catch (e) { Alert.alert('Erro', e.message || 'Não foi possível avaliar cliente.'); }
   };
 
   const handleSend = () => {

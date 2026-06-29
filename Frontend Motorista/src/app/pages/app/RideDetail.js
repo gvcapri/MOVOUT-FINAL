@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Linking, Alert } from 'react-native';
 import Text from '../../layouts/Components/Text';
 import AppLayout from '../../layouts/Layouts/AppLayout';
 import Card from '../../layouts/Components/Card';
@@ -42,7 +42,17 @@ export default function RideDetail({ navigation, route }) {
 
     useEffect(() => {
         fetchFrete();
-    }, [fetchFrete]);
+        const interval = setInterval(fetchFrete, 5000);
+
+        const unsubscribe = navigation.addListener('focus', () => {
+            fetchFrete();
+        });
+
+        return () => {
+            clearInterval(interval);
+            unsubscribe();
+        };
+    }, [navigation, fetchFrete]);
 
     useEffect(() => {
         const resolvePoint = async (lat, lng, textAddress) => {
@@ -243,10 +253,18 @@ export default function RideDetail({ navigation, route }) {
         try {
             const motoristaId = user?.id_motorista || user?.id || 1;
             const response = await axios.post(`${API_BASE_URL}/fretes/${rideId}/motorista-concluir?motorista_id=${motoristaId}`);
-            alert('Corrida concluída. Agora você pode avaliar o cliente apenas uma vez.');
-            fetchFrete();
+            Alert.alert(
+                'Corrida Concluída',
+                'Corrida concluída com sucesso. Agora você pode avaliar o cliente.',
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => fetchFrete()
+                    }
+                ]
+            );
         } catch (error) {
-            alert(error.response?.data?.detail || 'Não foi possível marcar a corrida como concluída.');
+            Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível marcar a corrida como concluída.');
         }
     };
 
@@ -259,6 +277,29 @@ export default function RideDetail({ navigation, route }) {
         if (supported) {
             await Linking.openURL(url);
         }
+    };
+
+    const handleGiveUpRide = async () => {
+        Alert.alert(
+            'Desistir da Corrida',
+            'Tem certeza que deseja desistir desta corrida? Ela voltará a ficar disponível para outros motoristas.',
+            [
+                { text: 'Não', style: 'cancel' },
+                {
+                    text: 'Sim, Desistir',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await axios.post(`${API_BASE_URL}/fretes/${rideId}/motorista-desistir`);
+                            Alert.alert('Sucesso', 'Você desistiu da corrida.');
+                            navigation.goBack();
+                        } catch (err) {
+                            Alert.alert('Erro', err.response?.data?.detail || err.message || 'Não foi possível desistir da corrida.');
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     return (
@@ -397,11 +438,36 @@ export default function RideDetail({ navigation, route }) {
                     style={{ marginTop: theme.spacing.md }}
                 />
 
-                <Button
-                    title="Corrida concluída"
-                    onPress={handleMarkCompleted}
-                    style={{ marginTop: theme.spacing.md }}
-                />
+                {frete?.status?.toLowerCase() === 'concluido' ? (
+                    <View style={{ alignItems: 'center', marginVertical: 20 }}>
+                        <Text style={{ fontSize: 48 }}>🎉</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10B981', marginTop: 12 }}>Corrida Concluída!</Text>
+                        <Text style={{ color: theme.colors.textSecondary, marginTop: 8, textAlign: 'center', marginBottom: 15 }}>
+                            Obrigado! O pagamento foi liberado em sua carteira.
+                        </Text>
+                        <Button
+                            title="Voltar ao início"
+                            onPress={() => navigation.navigate('Home')}
+                            style={{ width: '100%' }}
+                        />
+                    </View>
+                ) : (
+                    <>
+                        <Button
+                            title="Corrida concluída"
+                            onPress={handleMarkCompleted}
+                            style={{ marginTop: theme.spacing.md }}
+                        />
+
+                        {['aceito', 'em_transito', 'em andamento'].includes(frete?.status?.toLowerCase()) && (
+                            <Button
+                                title="Desistir da Corrida"
+                                onPress={handleGiveUpRide}
+                                style={{ marginTop: theme.spacing.md, backgroundColor: '#EF4444' }}
+                            />
+                        )}
+                    </>
+                )}
 
                 <Button
                     title="Abrir chat"
