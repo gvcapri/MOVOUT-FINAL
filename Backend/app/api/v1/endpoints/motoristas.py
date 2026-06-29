@@ -11,7 +11,7 @@ router = APIRouter()
 class PerfilMotoristaUpdate(BaseModel):
     nome: Optional[str] = None
     email: Optional[str] = None
-    cpf: Optional[str] = None
+    # cpf: Optional[str] = None
     telefone: Optional[str] = None
     cnh: Optional[str] = None
     veiculo: Optional[str] = None
@@ -172,7 +172,7 @@ def atualizar_perfil_motorista(motorista_id: int, dados: PerfilMotoristaUpdate, 
         raise HTTPException(status_code=404, detail="Motorista não encontrado")
     updates = []
     params = {"id_pessoa": pessoa_id}
-    for col in ["nome", "email", "cpf", "telefone"]:
+    for col in ["nome", "email", "telefone"]:
         value = getattr(dados, col, None)
         if value is not None and str(value).strip() != "":
             updates.append(f"{col} = :{col}")

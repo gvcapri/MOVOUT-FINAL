@@ -636,32 +636,38 @@ def _tentar_liberar_pagamento_pos_avaliacoes(db: Session, frete_id: int) -> dict
     row = _frete_row(db, frete_id)
     if not row:
         raise HTTPException(status_code=404, detail="Frete não encontrado")
+    
     fm = row._mapping
     if not fm.get("id_motorista"):
         return {"liberado": False, "motivo": "Frete sem motorista atribuído."}
+    
     avaliacao_status = _avaliacoes_status(db, frete_id)
-    if not (avaliacao_status["cliente_avaliou"] and avaliacao_status["motorista_avaliou"]):
-        return {"liberado": False, "motivo": "Aguardando as duas avaliações.", **avaliacao_status}
+    
+    # A TRAVA DAS AVALIAÇÕES FOI REMOVIDA DAQUI
+    
     pagamento = _ensure_pagamento(db, frete_id)
     if str(pagamento.get("status") or "").upper() in {"LIBERADO", "CONFIRMADO"}:
         return {"liberado": True, "motivo": "Pagamento já liberado.", "pagamento": _pagamento_payload(pagamento), **avaliacao_status}
+    
     valor = float(pagamento.get("valor") or fm.get("preco_fechado") or fm.get("preco_estimado") or 0)
     id_motorista = int(fm.get("id_motorista"))
+    
     db.execute(text("UPDATE frete7 SET status = 'CONCLUIDO' WHERE id_frete = :id"), {"id": frete_id})
     db.execute(text("""
         UPDATE pagamento_frete7
         SET status = 'LIBERADO', liberado_em = CURRENT_TIMESTAMP,
-            observacao = 'Pagamento liberado automaticamente após confirmação de conclusão e avaliações de cliente e motorista.'
+            observacao = 'Pagamento liberado automaticamente na conclusão da corrida.'
         WHERE id_frete = :id
     """), {"id": frete_id})
+    
     db.execute(text("""
         INSERT INTO carteira_motorista7 (id_motorista, saldo_disponivel, saldo_pendente)
         VALUES (:id_motorista, :valor, 0)
         ON DUPLICATE KEY UPDATE saldo_disponivel = saldo_disponivel + :valor
     """), {"id_motorista": id_motorista, "valor": valor})
+    
     pagamento = _ensure_pagamento(db, frete_id)
     return {"liberado": True, "valor": valor, "pagamento": _pagamento_payload(pagamento), **avaliacao_status}
-
 @router.get("/calcular-preco")
 def calcular_preco(
     distancia_km: float = Query(0.0),
@@ -1084,7 +1090,6 @@ def chegou_destino(frete_id: int, dados: OperacaoPagamento = OperacaoPagamento()
     return {"status": "aguardando_liberacao_cliente", "frete_id": frete_id, "pagamento": _pagamento_payload(pagamento)}
 
 
-
 @router.post("/{frete_id}/motorista-concluir")
 def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int] = None, session: Session = Depends(get_session)):
     row = _frete_row(session, frete_id)
@@ -1093,14 +1098,16 @@ def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int
     
     fm = row._mapping
     
-    # --- NOVO BLOCO DE VERIFICAÇÃO DE STATUS ---
-    # Só permitimos concluir se o status atual for exatamente 'EM_TRANSITO'
-    if fm.get("status") != 'EM_TRANSITO':
+    # --- BLOCO DE VERIFICAÇÃO DE STATUS FLEXIBILIZADO (B-5) ---
+    # Aceita se esqueceu de iniciar (ACEITO), se está rodando (EM_TRANSITO) 
+    # ou se a outra ponta já apertou concluir antes (CONCLUIDO).
+    status_atual = fm.get("status")
+    if status_atual not in ['ACEITO', 'EM_TRANSITO', 'CONCLUIDO']:
         raise HTTPException(
             status_code=400, 
-            detail=f"Operação inválida. O frete só pode ser concluído se estiver 'EM_TRANSITO'. Status atual: {fm.get('status')}"
+            detail=f"Operação inválida. O frete não pode ser concluído no status atual: {status_atual}"
         )
-    # -------------------------------------------
+    # -----------------------------------------------------------
 
     motorista_final = _resolve_motorista_id(session, motorista_id or fm.get("id_motorista"))
     if not fm.get("id_motorista") or int(fm.get("id_motorista")) != motorista_final:
@@ -1112,16 +1119,20 @@ def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int
             {"id": frete_id},
         )
         pagamento = _ensure_pagamento(session, frete_id)
-        session.execute(
-            text("UPDATE pagamento_frete7 SET status = 'AGUARDANDO_CONFIRMACAO', observacao = :obs WHERE id_frete = :id"),
-            {"id": frete_id, "obs": "Motorista informou que a corrida foi concluída."},
-        )
+        
+        # Só marcamos como aguardando confirmação se o pagamento ainda não foi liberado
+        if str(pagamento.get("status") or "").upper() not in {"LIBERADO", "CONFIRMADO"}:
+            session.execute(
+                text("UPDATE pagamento_frete7 SET status = 'AGUARDANDO_CONFIRMACAO', observacao = :obs WHERE id_frete = :id"),
+                {"id": frete_id, "obs": "Motorista informou que a corrida foi concluída."},
+            )
+            
         session.commit()
     except Exception as exc:
         session.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao marcar corrida concluída: {exc}") from exc
+        
     return {"status": "concluido_pelo_motorista", "novo_status": "concluido", "frete_id": frete_id, "pagamento": _ensure_pagamento(session, frete_id)}
-
 @router.post("/{frete_id}/cliente-confirmar-conclusao")
 def cliente_confirmar_conclusao(frete_id: int, dados: OperacaoPagamento = OperacaoPagamento(), session: Session = Depends(get_session)):
     row = _frete_row(session, frete_id)
@@ -1147,12 +1158,12 @@ def cliente_confirmar_conclusao(frete_id: int, dados: OperacaoPagamento = Operac
         """), {"id": frete_id})
         
         # Pagamento vai direto para avaliação
-        session.execute(text("""
-            UPDATE pagamento_frete7
-            SET status = 'AGUARDANDO_AVALIACOES', 
-                observacao = :obs
-            WHERE id_frete = :id
-        """), {"id": frete_id, "obs": dados.observacao or "Cliente confirmou a conclusão."})
+        # session.execute(text("""
+        #     UPDATE pagamento_frete7
+        #     SET status = 'AGUARDANDO_AVALIACOES', 
+        #         observacao = :obs
+        #     WHERE id_frete = :id
+        # """), {"id": frete_id, "obs": dados.observacao or "Cliente confirmou a conclusão."})
         
         # Tentamos liberar se o motorista também já tiver avaliado
         resultado = _tentar_liberar_pagamento_pos_avaliacoes(session, frete_id)
