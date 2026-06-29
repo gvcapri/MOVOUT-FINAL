@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Platform, StatusBar, Image } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { Truck, Home as HomeIcon, User, History as HistoryIcon, Search } from 'lucide-react-native';
+import { Truck, Home as HomeIcon, User, History as HistoryIcon } from 'lucide-react-native';
 import { theme } from '../../theme';
 import { Text } from '../ui/Text';
 import { Logo } from '../ui/Logo';
@@ -68,11 +68,6 @@ const Home = ({ onNavigate }) => {
                         )}
                     </TouchableOpacity>
                 </View>
-
-                <TouchableOpacity style={styles.searchButton} activeOpacity={0.8}>
-                    <Search color={theme.colors.textSecondary} size={20} />
-                    <Text color="textSecondary" style={styles.searchText}>Para onde vamos?</Text>
-                </TouchableOpacity>
             </View>
 
             {/* Map Area */}
@@ -159,15 +154,6 @@ const styles = StyleSheet.create({
         height: 45,
         borderRadius: 50,
     },
-    searchButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: theme.colors.white,
-        padding: theme.spacing.md,
-        borderRadius: theme.borderRadius.xl,
-        ...theme.shadows.sm,
-    },
-    searchText: { marginLeft: 12 },
     mapContainer: {
         flex: 1,
         position: 'relative',

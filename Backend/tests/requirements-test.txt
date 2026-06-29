@@ -1,0 +1,26 @@
+"""
+requirements-test.txt
+======================
+Dependências necessárias para executar os testes de regressão do Movout Backend.
+
+INSTALAÇÃO:
+    pip install -r requirements-test.txt
+
+OBSERVAÇÃO: Este arquivo é SEPARADO do requirements.txt do projeto principal.
+Instale em um ambiente virtual já ativado (o mesmo usado para rodar o backend).
+"""
+# Framework de testes
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Cliente HTTP assíncrono (para testes de API)
+httpx>=0.27.0
+
+# Biblioteca de WebSocket para Python (cliente)
+websockets>=12.0
+
+# Plugin opcional para output mais legível
+pytest-sugar>=1.0.0
+
+# Para rodar testes em paralelo (opcional — útil nos testes de estresse)
+# pytest-xdist>=3.5.0
