@@ -33,7 +33,8 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
         setDrvLocation({ latitude: dados.latitude, longitude: dados.longitude });
       }
 
-      if (dados.status === 'ACEITO' && dados.motorista) {
+      // if (dados.status === 'ACEITO' && dados.motorista) {
+      if (dados.tipo === 'FRETE_ACEITO') {
         setStatusCorrida('Motorista a caminho');
         setMotorista(dados.motorista);
       }
@@ -89,14 +90,14 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
             }
           }
         }
-      } catch {}
+      } catch { }
 
       try {
         const geocoded = await Location.geocodeAsync(address);
         if (Array.isArray(geocoded) && geocoded.length > 0) {
           return { latitude: geocoded[0].latitude, longitude: geocoded[0].longitude };
         }
-      } catch {}
+      } catch { }
 
       return null;
     };
@@ -303,7 +304,7 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
         )}
 
         {routeDriverOrigin.length >= 2 && (
-          <Polyline coordinates={routeDriverOrigin} strokeColor="#10B981" strokeWidth={3} lineDashPattern={[6,4]} />
+          <Polyline coordinates={routeDriverOrigin} strokeColor="#10B981" strokeWidth={3} lineDashPattern={[6, 4]} />
         )}
         {polylineCoords.length >= 2 && (
           <Polyline coordinates={polylineCoords} strokeColor="#1E3A8A" strokeWidth={4} />

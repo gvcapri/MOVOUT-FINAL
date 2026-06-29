@@ -24,14 +24,48 @@ export default function Profile({ navigation }) {
   };
   useEffect(() => { fetchProfile(); }, [motoristaId]);
   const pickImage = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 }); if (!result.canceled) setImage(result.assets[0].uri); };
+
   const saveProfile = async () => {
-    try { setSaving(true); const response = await axios.put(`${API_BASE_URL}/motoristas/${motoristaId}/perfil`, { nome: profileData.nome, email: profileData.email, cpf: profileData.cpf, telefone: profileData.telefone, marca: profileData.veiculo?.split(' ')?.[0] || profileData.veiculo, modelo: profileData.veiculo?.split(' ')?.slice(1).join(' '), placa: profileData.placa }); setProfileData(response.data.perfil || profileData); setEditing(false); Alert.alert('Sucesso', 'Perfil atualizado no banco.'); }
-    catch (e) { Alert.alert('Erro', e.response?.data?.detail || e.message || 'Não foi possível salvar.'); }
-    finally { setSaving(false); }
+    try {
+      setSaving(true);
+      const response = await axios.put(`${API_BASE_URL}/motoristas/${motoristaId}/perfil`, {
+        nome: profileData.nome,
+        email: profileData.email,
+        telefone: profileData.telefone,
+        marca: profileData.veiculo?.split(' ')?.[0] || profileData.veiculo,
+        modelo: profileData.veiculo?.split(' ')?.slice(1).join(' '),
+        placa: profileData.placa
+      });
+      setProfileData(response.data.perfil || profileData);
+      setEditing(false);
+      Alert.alert('Sucesso', 'Perfil atualizado no banco.');
+    }
+    catch (e) {
+      Alert.alert('Erro', e.response?.data?.detail || e.message || 'Não foi possível salvar.');
+    }
+    finally {
+      setSaving(false);
+    }
   };
+
   const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+
   if (loading) return <AppLayout title="Meu Perfil"><View style={styles.center}><ActivityIndicator size="large" color={theme.colors.primary} /></View></AppLayout>;
-  const field = (label, key, keyboardType = 'default') => (<View style={styles.inputGroup}><Text style={styles.label}>{label}</Text><TextInput editable={editing} value={String(profileData[key] || '')} onChangeText={(v) => setProfileData((prev) => ({ ...prev, [key]: v }))} style={[styles.input, !editing && styles.inputDisabled]} keyboardType={keyboardType} placeholder={label} /></View>);
+  // const field = (label, key, keyboardType = 'default') => (<View style={styles.inputGroup}><Text style={styles.label}>{label}</Text><TextInput editable={editing} value={String(profileData[key] || '')} onChangeText={(v) => setProfileData((prev) => ({ ...prev, [key]: v }))} style={[styles.input, !editing && styles.inputDisabled]} keyboardType={keyboardType} placeholder={label} /></View>);
+  const field = (label, key, keyboardType = 'default') => (
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        editable={key === 'cpf' ? false : editing}
+        value={String(profileData[key] || '')}
+        onChangeText={(v) => setProfileData((prev) => ({ ...prev, [key]: v }))}
+        style={[styles.input, (!editing || key === 'cpf') && styles.inputDisabled]}
+        keyboardType={keyboardType}
+        placeholder={label}
+      />
+    </View>
+  );
+
   return (
     <AppLayout title="Meu Perfil" scrollable>
       <View style={styles.content}>

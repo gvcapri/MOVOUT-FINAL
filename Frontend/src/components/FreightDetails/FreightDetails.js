@@ -10,6 +10,7 @@ const FreightDetails = ({ onNavigate, freightId }) => {
   const [frete, setFrete] = useState(null);
   const [pagamento, setPagamento] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [avaliando, setAvaliando] = useState(false);
 
   const load = async () => {
     try {
@@ -21,7 +22,7 @@ const FreightDetails = ({ onNavigate, freightId }) => {
       try {
         const p = await fetch(`${API_BASE_URL}/fretes/${freightId}/pagamento`);
         if (p.ok) setPagamento(await p.json());
-      } catch {}
+      } catch { }
     } catch (e) {
       Alert.alert('Erro', e.message || 'Não foi possível carregar detalhes.');
     } finally {
@@ -49,6 +50,7 @@ const FreightDetails = ({ onNavigate, freightId }) => {
 
   const avaliarMotorista = async (nota) => {
     try {
+      setAvaliando(true); // <--- TRAVA A TELA
       const r = await fetch(`${API_BASE_URL}/fretes/${freightId}/avaliar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,6 +62,8 @@ const FreightDetails = ({ onNavigate, freightId }) => {
       load();
     } catch (e) {
       Alert.alert('Erro', e.message || 'Não foi possível avaliar.');
+    } finally {
+      setAvaliando(false); // <--- DESTRAVA A TELA
     }
   };
 
@@ -116,14 +120,22 @@ const FreightDetails = ({ onNavigate, freightId }) => {
         <View style={styles.ratingBox}>
           <Text size="md" weight="bold">Avaliar motorista</Text>
           <Text size="sm" color="textSecondary">{motorista.nome || frete.motorista_nome || 'Motorista'}</Text>
-          <View style={styles.starsRow}>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <TouchableOpacity key={n} style={styles.starButton} onPress={() => avaliarMotorista(n)}>
-                <Text size="xl">⭐</Text>
-                <Text size="xs">{n}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+
+          {avaliando ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text size="sm" color="textSecondary" style={{ marginTop: 10 }}>Enviando avaliação...</Text>
+            </View>
+          ) : (
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <TouchableOpacity key={n} style={styles.starButton} onPress={() => avaliarMotorista(n)}>
+                  <Text size="xl">⭐</Text>
+                  <Text size="xs">{n}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
         <TouchableOpacity style={styles.chatButton} onPress={() => onNavigate('chat', { freightId })}>

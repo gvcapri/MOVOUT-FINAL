@@ -858,6 +858,19 @@ def motorista_aceitar_valor_cliente(frete_id: int, motorista_id: Optional[int] =
             id_neg = _insert_negociacao(session, frete_id, motorista_final, veiculo_final, preco_final, fm, "ACEITA")
         payload = _atribuir_motorista_ao_frete(session, frete_id, motorista_final, veiculo_final, preco_final, id_neg)
         session.commit()
+        # --- DISPARO DE WEBSOCKET (CORREÇÃO B-3) ---
+        ws_payload = {
+            "tipo": "FRETE_ACEITO", 
+            "frete_id": frete_id, 
+            "frete": payload, 
+            "motorista": payload.get("motorista")
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_location(frete_id, ws_payload))
+        except RuntimeError:
+            asyncio.run(manager.send_location(frete_id, ws_payload))
+        # ------------------------------------------
     except Exception as exc:
         session.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao aceitar frete: {exc}") from exc
@@ -992,25 +1005,95 @@ def aceitar_proposta(frete_id: int, motorista_id: Optional[int] = None, session:
         "frete": payload,
     }
 
+
+
+# @router.post("/{frete_id}/contraproposta")
+# def cliente_contraproposta(frete_id: int, dados: ContrapropostaCliente, session: Session = Depends(get_session)):
+#     """Cliente envia uma contraproposta ao motorista."""
+#     row = _frete_row(session, frete_id)
+#     if not row:
+#         raise HTTPException(status_code=404, detail="Frete não encontrado")
+#     fm = row._mapping
+#     status = str(fm.get("status") or "").upper()
+#     if status in {"ACEITO", "EM_TRANSITO", "CONCLUIDO", "CANCELADO"}:
+#         raise HTTPException(status_code=409, detail="Frete não está em negociação.")
+#     if dados.valor <= 0:
+#         raise HTTPException(status_code=400, detail="Valor da contraproposta deve ser maior que zero.")
+#     try:
+#         # Atualiza o preço estimado do frete com o valor da contraproposta do cliente
+#         session.execute(
+#             text("UPDATE frete7 SET preco_estimado = :valor, status = 'NEGOCIANDO' WHERE id_frete = :id"),
+#             {"valor": dados.valor, "id": frete_id},
+#         )
+#         # Atualiza a negociação pendente se existir
+#         if _table_exists(session, "negociacao7"):
+#             if dados.id_negociacao:
+#                 session.execute(
+#                     text("""
+#                     UPDATE negociacao7
+#                     SET preco_proposto = :valor, status = 'PENDENTE'
+#                     WHERE id_negociacao = :id_neg AND id_frete = :id_frete
+#                     """),
+#                     {"valor": dados.valor, "id_neg": dados.id_negociacao, "id_frete": frete_id},
+#                 )
+#             else:
+#                 # Cria nova entrada de contraproposta
+#                 motorista_id = dados.motorista_id or fm.get("id_motorista")
+#                 if motorista_id:
+#                     veiculo_id = _veiculo_motorista(session, int(motorista_id))
+#                     _insert_negociacao(session, frete_id, int(motorista_id), veiculo_id, dados.valor, fm, "PENDENTE")
+#         session.commit()
+#     except HTTPException:
+#         session.rollback()
+#         raise
+#     except Exception as exc:
+#         session.rollback()
+#         raise HTTPException(status_code=500, detail=f"Erro ao enviar contraproposta: {exc}") from exc
+
+#     # Notifica o motorista via WebSocket
+#     try:
+#         import asyncio
+#         ws_payload = {"tipo": "CONTRAPROPOSTA_CLIENTE", "frete_id": frete_id, "valor": dados.valor}
+#         try:
+#             loop = asyncio.get_running_loop()
+#             loop.create_task(manager.send_location(frete_id, ws_payload))
+#         except RuntimeError:
+#             asyncio.run(manager.send_location(frete_id, ws_payload))
+#     except Exception:
+#         pass
+
+#     row = _frete_row(session, frete_id)
+#     return {
+#         "status": "contraproposta_enviada",
+#         "frete_id": frete_id,
+#         "novo_valor_estimado": dados.valor,
+#         "frete": _frete_payload(row, _proposal_rows(session, frete_id)),
+#     }
+
+
 @router.post("/{frete_id}/contraproposta")
 def cliente_contraproposta(frete_id: int, dados: ContrapropostaCliente, session: Session = Depends(get_session)):
     """Cliente envia uma contraproposta ao motorista."""
     row = _frete_row(session, frete_id)
     if not row:
         raise HTTPException(status_code=404, detail="Frete não encontrado")
+    
     fm = row._mapping
     status = str(fm.get("status") or "").upper()
+    
     if status in {"ACEITO", "EM_TRANSITO", "CONCLUIDO", "CANCELADO"}:
         raise HTTPException(status_code=409, detail="Frete não está em negociação.")
     if dados.valor <= 0:
         raise HTTPException(status_code=400, detail="Valor da contraproposta deve ser maior que zero.")
+    
     try:
-        # Atualiza o preço estimado do frete com o valor da contraproposta do cliente
+        # CORREÇÃO B-2: Atualiza APENAS o status. O preco_estimado original fica intacto!
         session.execute(
-            text("UPDATE frete7 SET preco_estimado = :valor, status = 'NEGOCIANDO' WHERE id_frete = :id"),
-            {"valor": dados.valor, "id": frete_id},
+            text("UPDATE frete7 SET status = 'NEGOCIANDO' WHERE id_frete = :id"),
+            {"id": frete_id},
         )
-        # Atualiza a negociação pendente se existir
+        
+        # Atualiza a negociação pendente se existir (aqui sim o valor da contraproposta é salvo)
         if _table_exists(session, "negociacao7"):
             if dados.id_negociacao:
                 session.execute(
@@ -1051,10 +1134,9 @@ def cliente_contraproposta(frete_id: int, dados: ContrapropostaCliente, session:
     return {
         "status": "contraproposta_enviada",
         "frete_id": frete_id,
-        "novo_valor_estimado": dados.valor,
+        "valor_contraproposta": dados.valor,
         "frete": _frete_payload(row, _proposal_rows(session, frete_id)),
     }
-
 
 @router.post("/{frete_id}/cancelar")
 def cancelar_frete(frete_id: int, session: Session = Depends(get_session)):
@@ -1133,6 +1215,7 @@ def motorista_marcar_corrida_concluida(frete_id: int, motorista_id: Optional[int
         raise HTTPException(status_code=500, detail=f"Erro ao marcar corrida concluída: {exc}") from exc
         
     return {"status": "concluido_pelo_motorista", "novo_status": "concluido", "frete_id": frete_id, "pagamento": _ensure_pagamento(session, frete_id)}
+
 @router.post("/{frete_id}/cliente-confirmar-conclusao")
 def cliente_confirmar_conclusao(frete_id: int, dados: OperacaoPagamento = OperacaoPagamento(), session: Session = Depends(get_session)):
     row = _frete_row(session, frete_id)
@@ -1140,15 +1223,22 @@ def cliente_confirmar_conclusao(frete_id: int, dados: OperacaoPagamento = Operac
         raise HTTPException(status_code=404, detail="Frete não encontrado")
     
     fm = row._mapping
+
+    # --- VERIFICAÇÃO DE STATUS FLEXÍVEL (B-5 Aplicado ao Cliente) ---
+    status_atual = fm.get("status")
+    if status_atual not in ['ACEITO', 'EM_TRANSITO', 'CONCLUIDO']:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Operação inválida. O frete não pode ser concluído no status atual: {status_atual}"
+        )
+    # ----------------------------------------------------------------
+
     if not fm.get("id_motorista"):
         raise HTTPException(status_code=400, detail="Frete sem motorista atribuído.")
     
     try:
-        # Garantimos que o pagamento exista antes de mexer nele
         _ensure_pagamento(session, frete_id)
         
-        # ATUALIZAÇÃO FORÇADA: Não importa se o motorista concluiu ou não.
-        # O cliente confirmou, então setamos status como CONCLUIDO.
         session.execute(text("""
             UPDATE frete7
             SET status = 'CONCLUIDO', 
@@ -1157,15 +1247,6 @@ def cliente_confirmar_conclusao(frete_id: int, dados: OperacaoPagamento = Operac
             WHERE id_frete = :id
         """), {"id": frete_id})
         
-        # Pagamento vai direto para avaliação
-        # session.execute(text("""
-        #     UPDATE pagamento_frete7
-        #     SET status = 'AGUARDANDO_AVALIACOES', 
-        #         observacao = :obs
-        #     WHERE id_frete = :id
-        # """), {"id": frete_id, "obs": dados.observacao or "Cliente confirmou a conclusão."})
-        
-        # Tentamos liberar se o motorista também já tiver avaliado
         resultado = _tentar_liberar_pagamento_pos_avaliacoes(session, frete_id)
         session.commit()
         
@@ -1311,3 +1392,58 @@ def post_detectar_objeto(file: UploadFile = File(...), frete_id: Optional[int] =
     except Exception as exc:
         logger.error(f"--- [ENDPOINT] Erro: {str(exc)} ---")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/{frete_id}/motorista-desistir")
+def motorista_desistir(frete_id: int, motorista_id: Optional[int] = None, session: Session = Depends(get_session)):
+    """Motorista abandona a corrida após ter aceitado, voltando o frete para PENDENTE."""
+    row = _frete_row(session, frete_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Frete não encontrado")
+
+    fm = row._mapping
+    status_atual = str(fm.get("status") or "").upper()
+
+    if status_atual not in ['ACEITO', 'EM_TRANSITO']:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Não é possível desistir de um frete no status atual: {status_atual}"
+        )
+
+    # Verifica se quem está desistindo é realmente o motorista da corrida
+    motorista_db = fm.get("id_motorista")
+    if motorista_db and motorista_id and str(motorista_db) != str(motorista_id):
+        raise HTTPException(status_code=403, detail="Este frete está atribuído a outro motorista.")
+
+    try:
+        # Tira o motorista, tira o veículo e volta para a 'piscina' de buscas do cliente
+        session.execute(
+            text("""
+                UPDATE frete7 
+                SET status = 'PENDENTE', id_motorista = NULL, id_veiculo = NULL 
+                WHERE id_frete = :id
+            """),
+            {"id": frete_id},
+        )
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar desistência: {exc}") from exc
+
+    # Grita no WebSocket para o aplicativo do cliente que o motorista fugiu
+    try:
+        import asyncio
+        ws_payload = {"tipo": "MOTORISTA_DESISTIU", "frete_id": frete_id}
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(manager.send_location(frete_id, ws_payload))
+        except RuntimeError:
+            asyncio.run(manager.send_location(frete_id, ws_payload))
+    except Exception:
+        pass
+
+    return {
+        "status": "desistencia_concluida", 
+        "frete_id": frete_id, 
+        "novo_status": "PENDENTE"
+    }
