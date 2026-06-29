@@ -92,7 +92,7 @@ const FreightAccepted = ({ onNavigate, freightId }) => {
         if (response.ok) {
           const frete = await response.json();
           const status = frete.status?.toLowerCase();
-          
+
           if (status === 'concluido') {
             ws.current?.close();
             onNavigate('summary', { freightId: idDoFrete });

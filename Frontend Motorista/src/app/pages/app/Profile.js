@@ -49,7 +49,6 @@ export default function Profile({ navigation }) {
       setLoading(false);
     }
   };
-<<<<<<< HEAD
 
   useEffect(() => {
     fetchProfile();
@@ -66,10 +65,6 @@ export default function Profile({ navigation }) {
       setImage(result.assets[0].uri);
     }
   };
-=======
-  useEffect(() => { fetchProfile(); }, [motoristaId]);
-  const pickImage = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 }); if (!result.canceled) setImage(result.assets[0].uri); };
->>>>>>> e5db0f822d3aa54cd757de21386bcb4a97dcdb23
 
   const saveProfile = async () => {
     try {
@@ -77,10 +72,7 @@ export default function Profile({ navigation }) {
       const response = await axios.put(`${API_BASE_URL}/motoristas/${motoristaId}/perfil`, {
         nome: profileData.nome,
         email: profileData.email,
-<<<<<<< HEAD
         cpf: profileData.cpf,
-=======
->>>>>>> e5db0f822d3aa54cd757de21386bcb4a97dcdb23
         telefone: profileData.telefone,
         marca: profileData.veiculo?.split(' ')?.[0] || profileData.veiculo,
         modelo: profileData.veiculo?.split(' ')?.slice(1).join(' '),
@@ -89,22 +81,13 @@ export default function Profile({ navigation }) {
       setProfileData(response.data.perfil || profileData);
       setEditing(false);
       Alert.alert('Sucesso', 'Perfil atualizado no banco.');
-<<<<<<< HEAD
     } catch (e) {
       Alert.alert('Erro', e.response?.data?.detail || e.message || 'Não foi possível salvar.');
     } finally {
-=======
-    }
-    catch (e) {
-      Alert.alert('Erro', e.response?.data?.detail || e.message || 'Não foi possível salvar.');
-    }
-    finally {
->>>>>>> e5db0f822d3aa54cd757de21386bcb4a97dcdb23
       setSaving(false);
     }
   };
 
-<<<<<<< HEAD
   const handleSaque = async () => {
     const valor = parseFloat(saqueValor.replace(',', '.'));
     if (!valor || valor <= 0) {
@@ -151,21 +134,11 @@ export default function Profile({ navigation }) {
     );
   }
 
-=======
-  const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
-
-  if (loading) return <AppLayout title="Meu Perfil"><View style={styles.center}><ActivityIndicator size="large" color={theme.colors.primary} /></View></AppLayout>;
-  // const field = (label, key, keyboardType = 'default') => (<View style={styles.inputGroup}><Text style={styles.label}>{label}</Text><TextInput editable={editing} value={String(profileData[key] || '')} onChangeText={(v) => setProfileData((prev) => ({ ...prev, [key]: v }))} style={[styles.input, !editing && styles.inputDisabled]} keyboardType={keyboardType} placeholder={label} /></View>);
->>>>>>> e5db0f822d3aa54cd757de21386bcb4a97dcdb23
   const field = (label, key, keyboardType = 'default') => (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-<<<<<<< HEAD
         editable={editing && key !== 'cpf'} // CPF fields should not be editable!
-=======
-        editable={key === 'cpf' ? false : editing}
->>>>>>> e5db0f822d3aa54cd757de21386bcb4a97dcdb23
         value={String(profileData[key] || '')}
         onChangeText={(v) => setProfileData((prev) => ({ ...prev, [key]: v }))}
         style={[styles.input, (!editing || key === 'cpf') && styles.inputDisabled]}
@@ -178,7 +151,7 @@ export default function Profile({ navigation }) {
   return (
     <AppLayout title="Meu Perfil" scrollable>
       <View style={styles.content}>
-        
+
         {/* Profile Card */}
         <Card style={styles.profileCard}>
           <TouchableOpacity onPress={pickImage} style={styles.avatarContainer}>
@@ -216,7 +189,7 @@ export default function Profile({ navigation }) {
           {field('Telefone', 'telefone', 'phone-pad')}
           {field('Veículo', 'veiculo')}
           {field('Placa', 'placa')}
-          
+
           <TouchableOpacity
             style={[styles.saveButton, editing ? styles.saveButtonActive : styles.editButton]}
             onPress={editing ? saveProfile : () => setEditing(true)}
@@ -239,7 +212,7 @@ export default function Profile({ navigation }) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Solicitar Saque</Text>
             <Text style={styles.modalSub}>Saldo disponível: {formatCurrency(profileData.saldo_carteira)}</Text>
-            
+
             <View style={styles.modalInputGroup}>
               <Text style={styles.modalInputLabel}>Valor do Saque (R$)</Text>
               <TextInput
@@ -306,7 +279,7 @@ const styles = StyleSheet.create({
   saveButtonText: { color: '#FFF', fontWeight: 'bold' },
   logoutButton: { backgroundColor: theme.colors.accent, borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 18, marginBottom: 30 },
   logoutText: { color: '#FFF', fontWeight: 'bold' },
-  
+
   // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#FFF', width: '85%', borderRadius: 16, padding: 20, elevation: 10 },

@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import asyncio
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
@@ -1175,40 +1175,102 @@ def cancelar_frete(frete_id: int, session: Session = Depends(get_session)):
 
     return {"status": "cancelado", "frete_id": frete_id, "novo_status": "cancelado"}
 
+# @router.post("/{frete_id}/motorista-desistir")
+# def motorista_desistir(frete_id: int, session: Session = Depends(get_session)):
+#     row = _frete_row(session, frete_id)
+#     if not row:
+#         raise HTTPException(status_code=404, detail="Frete não encontrado")
+    
+#     # Limpa dados do motorista no frete e volta para PENDENTE
+#     session.execute(
+#         text(
+#             """
+#             UPDATE frete7 
+#             SET status = 'PENDENTE', 
+#                 id_motorista = NULL, 
+#                 id_veiculo = NULL, 
+#                 preco_fechado = NULL,
+#                 motorista_confirmou_conclusao = 0,
+#                 cliente_confirmou_conclusao = 0,
+#                 concluido_em = NULL
+#             WHERE id_frete = :id
+#             """
+#         ),
+#         {"id": frete_id},
+#     )
+    
+#     # Cancela negociação ativa
+#     if _table_exists(session, "negociacao7"):
+#         session.execute(
+#             text("UPDATE negociacao7 SET status = 'CANCELADA' WHERE id_frete = :id AND status = 'ACEITA'"),
+#             {"id": frete_id},
+#         )
+        
+#     session.commit()
+
+#     # Notifica o cliente via WebSocket
+#     try:
+#         import asyncio
+#         ws_payload = {"tipo": "MOTORISTA_DESISTIU", "frete_id": frete_id}
+#         try:
+#             loop = asyncio.get_running_loop()
+#             loop.create_task(manager.send_location(frete_id, ws_payload))
+#         except RuntimeError:
+#             asyncio.run(manager.send_location(frete_id, ws_payload))
+#     except Exception:
+#         pass
+
+#     return {"status": "motorista_desistiu", "frete_id": frete_id, "novo_status": "PENDENTE"}
+
 @router.post("/{frete_id}/motorista-desistir")
-def motorista_desistir(frete_id: int, session: Session = Depends(get_session)):
+def motorista_desistir(frete_id: int, motorista_id: Optional[int] = None, session: Session = Depends(get_session)):
+    """Motorista abandona a corrida após ter aceitado, voltando o frete para PENDENTE e limpando todo o histórico da negociação ativa."""
     row = _frete_row(session, frete_id)
     if not row:
         raise HTTPException(status_code=404, detail="Frete não encontrado")
-    
-    # Limpa dados do motorista no frete e volta para PENDENTE
-    session.execute(
-        text(
-            """
-            UPDATE frete7 
-            SET status = 'PENDENTE', 
-                id_motorista = NULL, 
-                id_veiculo = NULL, 
-                preco_fechado = NULL,
-                motorista_confirmou_conclusao = 0,
-                cliente_confirmou_conclusao = 0,
-                concluido_em = NULL
-            WHERE id_frete = :id
-            """
-        ),
-        {"id": frete_id},
-    )
-    
-    # Cancela negociação ativa
-    if _table_exists(session, "negociacao7"):
+
+    fm = row._mapping
+    status_atual = str(fm.get("status") or "").upper()
+
+    if status_atual not in ['ACEITO', 'EM_TRANSITO']:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Não é possível desistir de um frete no status atual: {status_atual}"
+        )
+
+    motorista_db = fm.get("id_motorista")
+    if motorista_db and motorista_id and str(motorista_db) != str(motorista_id):
+        raise HTTPException(status_code=403, detail="Este frete está atribuído a outro motorista.")
+
+    try:
+        # Reset completo de todos os campos de conclusão e amarração
         session.execute(
-            text("UPDATE negociacao7 SET status = 'CANCELADA' WHERE id_frete = :id AND status = 'ACEITA'"),
+            text("""
+                UPDATE frete7 
+                SET status = 'PENDENTE', 
+                    id_motorista = NULL, 
+                    id_veiculo = NULL, 
+                    preco_fechado = NULL,
+                    motorista_confirmou_conclusao = 0,
+                    cliente_confirmou_conclusao = 0,
+                    concluido_em = NULL
+                WHERE id_frete = :id
+            """),
             {"id": frete_id},
         )
         
-    session.commit()
+        # Cancela qualquer negociação que estava amarrada a esse aceite
+        if _table_exists(session, "negociacao7"):
+            session.execute(
+                text("UPDATE negociacao7 SET status = 'CANCELADA' WHERE id_frete = :id_frete AND status = 'ACEITA'"),
+                {"id_frete": frete_id}
+            )
+            
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar desistência: {exc}") from exc
 
-    # Notifica o cliente via WebSocket
     try:
         import asyncio
         ws_payload = {"tipo": "MOTORISTA_DESISTIU", "frete_id": frete_id}
@@ -1220,8 +1282,11 @@ def motorista_desistir(frete_id: int, session: Session = Depends(get_session)):
     except Exception:
         pass
 
-    return {"status": "motorista_desistiu", "frete_id": frete_id, "novo_status": "PENDENTE"}
-
+    return {
+        "status": "desistencia_concluida", 
+        "frete_id": frete_id, 
+        "novo_status": "PENDENTE"
+    }
 
 @router.post("/{frete_id}/motorista-cancelar-proposta")
 def motorista_cancelar_proposta(frete_id: int, motorista_id: int, session: Session = Depends(get_session)):
@@ -1512,58 +1577,3 @@ def post_detectar_objeto(file: UploadFile = File(...), frete_id: Optional[int] =
     except Exception as exc:
         logger.error(f"--- [ENDPOINT] Erro: {str(exc)} ---")
         raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/{frete_id}/motorista-desistir")
-def motorista_desistir(frete_id: int, motorista_id: Optional[int] = None, session: Session = Depends(get_session)):
-    """Motorista abandona a corrida após ter aceitado, voltando o frete para PENDENTE."""
-    row = _frete_row(session, frete_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Frete não encontrado")
-
-    fm = row._mapping
-    status_atual = str(fm.get("status") or "").upper()
-
-    if status_atual not in ['ACEITO', 'EM_TRANSITO']:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Não é possível desistir de um frete no status atual: {status_atual}"
-        )
-
-    # Verifica se quem está desistindo é realmente o motorista da corrida
-    motorista_db = fm.get("id_motorista")
-    if motorista_db and motorista_id and str(motorista_db) != str(motorista_id):
-        raise HTTPException(status_code=403, detail="Este frete está atribuído a outro motorista.")
-
-    try:
-        # Tira o motorista, tira o veículo e volta para a 'piscina' de buscas do cliente
-        session.execute(
-            text("""
-                UPDATE frete7 
-                SET status = 'PENDENTE', id_motorista = NULL, id_veiculo = NULL 
-                WHERE id_frete = :id
-            """),
-            {"id": frete_id},
-        )
-        session.commit()
-    except Exception as exc:
-        session.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao registrar desistência: {exc}") from exc
-
-    # Grita no WebSocket para o aplicativo do cliente que o motorista fugiu
-    try:
-        import asyncio
-        ws_payload = {"tipo": "MOTORISTA_DESISTIU", "frete_id": frete_id}
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(manager.send_location(frete_id, ws_payload))
-        except RuntimeError:
-            asyncio.run(manager.send_location(frete_id, ws_payload))
-    except Exception:
-        pass
-
-    return {
-        "status": "desistencia_concluida", 
-        "frete_id": frete_id, 
-        "novo_status": "PENDENTE"
-    }
