@@ -1,5 +1,4 @@
-// Configuracao central da API do Motorista (Gerado automaticamente)
-const BASE_IP = '192.168.0.110';
+﻿const API_HOST = 'https://movout-backend.onrender.com';
 
-export const API_BASE_URL = 'http://' + BASE_IP + ':8000/api/v1';
-export const WS_BASE_URL = 'ws://' + BASE_IP + ':8000/api/v1';
+export const API_BASE_URL = `${API_HOST}/api/v1`;
+export const WS_BASE_URL = `${API_HOST.replace(/^http/, 'ws')}/api/v1`;
