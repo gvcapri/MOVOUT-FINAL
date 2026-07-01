@@ -9,9 +9,7 @@
     "updates": {
       "enabled": false
     },
-
     "newArchEnabled": true,
-
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",

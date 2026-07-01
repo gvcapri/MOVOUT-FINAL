@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -62,51 +63,6 @@ export default function ChatDetail({ route, navigation }) {
     };
   }, [chatId]);
 
-
-
-  const marcarCorridaConcluida = async () => {
-    if (!chatId) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/fretes/${chatId}/motorista-concluir`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Erro ao marcar corrida como concluída');
-      Alert.alert(
-        'Corrida Concluída',
-        'Corrida concluída. Agora você pode avaliar o cliente.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.navigate('RideDetail', { rideId: chatId })
-          }
-        ]
-      );
-    } catch (e) { Alert.alert('Erro', e.message || 'Não foi possível marcar a corrida como concluída.'); }
-  };
-
-  const avaliarCliente = async () => {
-    if (!chatId) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/fretes/${chatId}/avaliar`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo_avaliador: 'MOTORISTA', tipo_avaliado: 'CLIENTE', nota: 5, comentario: 'Cliente avaliado pelo motorista' }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Erro ao avaliar cliente');
-      Alert.alert(
-        'Cliente Avaliado',
-        data?.resultado_pagamento?.liberado 
-          ? 'Cliente avaliado. As duas avaliações foram feitas e o saldo foi liberado.' 
-          : 'Cliente avaliado. O saldo será liberado quando o cliente também avaliar.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.navigate('RideDetail', { rideId: chatId })
-          }
-        ]
-      );
-    } catch (e) { Alert.alert('Erro', e.message || 'Não foi possível avaliar cliente.'); }
-  };
-
   const handleSend = () => {
     if (!inputText.trim()) return;
 
@@ -167,11 +123,11 @@ export default function ChatDetail({ route, navigation }) {
         </View>
       </View>
 
-      {/* Chat body */}
+      {/* Chat body - MODIFICADO */}
       <KeyboardAvoidingView
         style={styles.body}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <FlatList
           ref={flatListRef}
@@ -190,12 +146,7 @@ export default function ChatDetail({ route, navigation }) {
           }
         />
 
-        <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.quickBtn} onPress={marcarCorridaConcluida}><Text style={styles.quickBtnText}>Corrida concluída</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.quickBtnAlt} onPress={avaliarCliente}><Text style={styles.quickBtnAltText}>Avaliar cliente ⭐</Text></TouchableOpacity>
-        </View>
-
-        {/* Input bar */}
+        {/* Input bar - MODIFICADO */}
         <View style={styles.inputBar}>
           <TextInput
             placeholder="Digite sua mensagem..."
@@ -383,17 +334,12 @@ const styles = StyleSheet.create({
   },
 
   /* ─── Input bar ─── */
-  quickActions: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4, backgroundColor: '#FFF' },
-  quickBtn: { flex: 1, backgroundColor: '#10B981', borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
-  quickBtnText: { color: '#FFF', fontWeight: '700', fontSize: 12 },
-  quickBtnAlt: { flex: 1, backgroundColor: '#F3F4F6', borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
-  quickBtnAltText: { color: '#111827', fontWeight: '700', fontSize: 12 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    paddingBottom: Platform.OS === 'ios' ? 44 : 42,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 16, // MODIFICADO: reduzido de 44 para 20
     backgroundColor: '#FFF',
     borderTopWidth: 1,
     borderTopColor: '#ECECEC',

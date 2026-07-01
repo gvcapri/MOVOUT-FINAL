@@ -268,6 +268,33 @@ export default function RideDetail({ navigation, route }) {
         }
     };
 
+    const handleAvaliarCliente = async () => {
+        if (!rideId) return;
+        try {
+            const response = await axios.post(`${API_BASE_URL}/fretes/${rideId}/avaliar`, {
+                tipo_avaliador: 'MOTORISTA',
+                tipo_avaliado: 'CLIENTE',
+                nota: 5,
+                comentario: 'Cliente avaliado pelo motorista'
+            });
+            const data = response.data;
+            Alert.alert(
+                'Cliente Avaliado',
+                data?.resultado_pagamento?.liberado
+                    ? 'Cliente avaliado. As duas avaliações foram feitas e o saldo foi liberado.'
+                    : 'Cliente avaliado. O saldo será liberado quando o cliente também avaliar.',
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => fetchFrete()
+                    }
+                ]
+            );
+        } catch (error) {
+            Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível avaliar cliente.');
+        }
+    };
+
     const handleOpenExternalRoute = async () => {
         if (!frete?.origem || !frete?.destino) return;
         const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
@@ -438,37 +465,6 @@ export default function RideDetail({ navigation, route }) {
                     style={{ marginTop: theme.spacing.md }}
                 />
 
-                {frete?.status?.toLowerCase() === 'concluido' ? (
-                    <View style={{ alignItems: 'center', marginVertical: 20 }}>
-                        <Text style={{ fontSize: 48 }}>🎉</Text>
-                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10B981', marginTop: 12 }}>Corrida Concluída!</Text>
-                        <Text style={{ color: theme.colors.textSecondary, marginTop: 8, textAlign: 'center', marginBottom: 15 }}>
-                            Obrigado! O pagamento foi liberado em sua carteira.
-                        </Text>
-                        <Button
-                            title="Voltar ao início"
-                            onPress={() => navigation.navigate('Home')}
-                            style={{ width: '100%' }}
-                        />
-                    </View>
-                ) : (
-                    <>
-                        <Button
-                            title="Corrida concluída"
-                            onPress={handleMarkCompleted}
-                            style={{ marginTop: theme.spacing.md }}
-                        />
-
-                        {['aceito', 'em_transito', 'em andamento'].includes(frete?.status?.toLowerCase()) && (
-                            <Button
-                                title="Desistir da Corrida"
-                                onPress={handleGiveUpRide}
-                                style={{ marginTop: theme.spacing.md, backgroundColor: '#EF4444' }}
-                            />
-                        )}
-                    </>
-                )}
-
                 <Button
                     title="Abrir chat"
                     variant="secondary"
@@ -480,8 +476,41 @@ export default function RideDetail({ navigation, route }) {
                     title="Relatar um Problema"
                     variant="secondary"
                     onPress={() => alert('Suporte acionado.')}
-                    style={{ marginTop: theme.spacing.lg, marginBottom: 40 }}
+                    style={{ marginTop: theme.spacing.md }}
                 />
+
+                {frete?.status?.toLowerCase() === 'concluido' ? (
+                    <View style={{ alignItems: 'center', marginVertical: 20 }}>
+                        <Text style={{ fontSize: 48 }}>🎉</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10B981', marginTop: 12 }}>Corrida Concluída!</Text>
+                        <Text style={{ color: theme.colors.textSecondary, marginTop: 8, textAlign: 'center', marginBottom: 15 }}>
+                            Obrigado! O pagamento foi liberado em sua carteira.
+                        </Text>
+                        <TouchableOpacity style={{ width: '100%', backgroundColor: '#F3F4F6', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', marginBottom: theme.spacing.md }} onPress={handleAvaliarCliente}>
+                            <Text style={{ color: '#111827', fontWeight: 'bold', fontSize: 14 }}>Avaliar cliente ⭐</Text>
+                        </TouchableOpacity>
+                        <Button
+                            title="Voltar ao início"
+                            onPress={() => navigation.navigate('Home')}
+                            style={{ width: '100%', marginBottom: 40 }}
+                        />
+                    </View>
+                ) : (
+                    <>
+                        {['aceito', 'em_transito', 'em andamento'].includes(frete?.status?.toLowerCase()) && (
+                            <Button
+                                title="Desistir da Corrida"
+                                onPress={handleGiveUpRide}
+                                style={{ marginTop: theme.spacing.md, backgroundColor: '#EF4444' }}
+                            />
+                        )}
+                        <Button
+                            title="Corrida concluída"
+                            onPress={handleMarkCompleted}
+                            style={{ marginTop: theme.spacing.lg, marginBottom: 40, backgroundColor: '#10B981' }}
+                        />
+                    </>
+                )}
             </View>
         </AppLayout>
     );
